@@ -4,7 +4,7 @@ from app.config import settings
 
 def test_sigex_registration_one_time_and_browser_binding(client, monkeypatch):
     settings().sigex_enabled = True
-    monkeypatch.setattr('app.identity.verify_xml', lambda *args: {'identity': 'IIN000000000001', 'name': 'Тестовый Врач'})
+    monkeypatch.setattr('app.identity.verify_xml', lambda *args, **kwargs: {'identity': 'IIN000000000001', 'name': 'Тестовый Врач'})
     start = client.post('/api/v1/auth/identity/eds/start', json={'purpose': 'register', 'iin': '000000000001'})
     assert start.status_code == 200
     identity_id = start.json()['id']
@@ -40,7 +40,7 @@ from app.security import digest
 
 def mock_sigex(monkeypatch, iin='000000000001'):
     settings().sigex_enabled = True
-    def verified(signature, expected, expected_iin):
+    def verified(signature, expected, expected_iin, **kwargs):
         assert '<authentication>' in expected
         if expected_iin and expected_iin != iin: raise ValueError('iin_mismatch')
         return {'identity': 'IIN' + iin, 'name': 'Тестовый Врач'}
@@ -107,7 +107,7 @@ def test_registration_iin_must_match_verified_certificate(client, monkeypatch, m
         'purpose': 'register', 'iin': '000000000001'}).json()['id']
     if method == 'eds':
         assert client.post(f'/api/v1/auth/identity/{attempt}/signature', json={'signature': 'test-signature-value-123'}).status_code == 401
-    assert client.post(f'/api/v1/auth/identity/{attempt}/finish').status_code == 410
+    assert client.post(f'/api/v1/auth/identity/{attempt}/finish').status_code == 401
     assert client.get('/api/v1/auth/me').status_code == 401
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Doctor)) == 0
@@ -194,3 +194,54 @@ def test_link_cannot_steal_identity_or_survive_account_switch(client, doctor, mo
     with SessionLocal() as db:
         assert db.get(Doctor, other['id']).identity_hash is None
         assert db.get(Doctor, doctor['id']).identity_hash == digest('IIN000000000001')
+
+
+def test_xml_verification_resumes_registered_document_after_network_failure(client, monkeypatch):
+    from app.db import IdentityAttempt, now
+    from app.identity import run_qr
+    from app.consent_sigex import ConsentVerificationError
+    settings().sigex_enabled = True
+    calls = []
+    def verified(signature, expected, expected_iin, *, checkpoint=None, resume=None):
+        calls.append(resume)
+        if not resume:
+            checkpoint({'documentId': 'synthetic-private-document', 'signId': 1})
+            raise ConsentVerificationError('Временная ошибка проверки', retryable=True)
+        assert resume['documentId'] == 'synthetic-private-document'
+        return {'identity': 'IIN000000000001', 'name': 'Тестовый Врач'}
+    monkeypatch.setattr('app.identity.verify_xml', verified)
+    attempt = client.post('/api/v1/auth/identity/eds/start', json={'purpose': 'register', 'iin': '000000000001'}).json()
+    path = '/api/v1/auth/identity/' + attempt['id']
+    body = {'signature': '<signed>Синтетическая подпись</signed>'}
+    result = client.post(path + '/signature', json=body)
+    assert result.status_code == 200 and result.json()['state'] == 'verifying'
+    assert client.post(path + '/signature', json=body).json()['state'] == 'verifying'
+    assert len(calls) == 1
+    assert client.get('/api/v1/auth/me').status_code == 401
+    status = client.get(path).json()
+    assert status['state'] == 'verifying' and status['expires_at'] > attempt['expires_at']
+    assert 'Временная ошибка' in status['error']
+    with SessionLocal() as db:
+        saved = db.get(IdentityAttempt, attempt['id'])
+        assert saved.data['signature'] == body['signature']
+        saved.data = {**saved.data, 'retry_after': 0}
+        db.commit()
+    run_qr(attempt['id'])
+    assert len(calls) == 2 and calls[1]['signId'] == 1
+    assert client.get(path).json()['state'] == 'signed'
+    assert client.post(path + '/finish').status_code == 200
+
+
+def test_failed_signature_reports_rejection_instead_of_false_expiration(client, monkeypatch):
+    from app.consent_sigex import ConsentVerificationError
+    settings().sigex_enabled = True
+    def rejected(*args, **kwargs):
+        raise ConsentVerificationError('SIGEX: подпись отклонена')
+    monkeypatch.setattr('app.identity.verify_xml', rejected)
+    attempt = client.post('/api/v1/auth/identity/eds/start', json={'purpose': 'login'}).json()
+    path = '/api/v1/auth/identity/' + attempt['id']
+    assert client.post(path + '/signature', json={'signature': 'invalid-signature-value-123'}).status_code == 401
+    result = client.get(path)
+    assert result.status_code == 401
+    assert result.json()['detail'] == 'SIGEX: подпись отклонена'
+    assert client.get('/api/v1/auth/me').status_code == 401

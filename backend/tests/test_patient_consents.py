@@ -208,7 +208,7 @@ def test_qr_transfers_exact_pdf_then_verifies_cms_and_preserves_private_resume(c
     assert status['state'] == 'signed' and status['patient']['processing_consent']
 
 
-@pytest.mark.parametrize('fault', [None, 'http200_error', 'attached_document', 'wrong_data_id', 'wrong_verify_id', 'string_sign_id'])
+@pytest.mark.parametrize('fault', [None, 'http200_error', 'attached_document', 'wrong_data_id', 'wrong_verify_id', 'string_sign_id', 'unknown_size', 'wrong_size', 'boolean_size'])
 def test_sigex_private_document_verification_contract(monkeypatch, fault):
     pdf, iin, document_id = b'%PDF-synthetic-consent-document', '000000000000', 'synthetic-document-id'
     requests = []
@@ -226,12 +226,12 @@ def test_sigex_private_document_verification_contract(monkeypatch, fault):
         assert request.content == pdf and request.headers['content-type'] == 'application/octet-stream'
         if request.url.path.endswith('/data'):
             return httpx.Response(200, json={'documentId': 'other-document' if fault == 'wrong_data_id' else document_id,
-                'signedDataSize': len(pdf), 'digests': {'synthetic': 'digest'}})
+                'signedDataSize': 0 if fault == 'unknown_size' else (True if fault == 'boolean_size' else (len(pdf) + 1 if fault == 'wrong_size' else len(pdf))), 'digests': {'synthetic': 'digest'}})
         return httpx.Response(200, json={'documentId': 'other-document' if fault == 'wrong_verify_id' else document_id,
             'dataArchived': False, 'tempStorage': False})
     original_client = httpx.Client
     monkeypatch.setattr(httpx, 'Client', lambda **kwargs: original_client(transport=httpx.MockTransport(handle), **kwargs))
-    if fault:
+    if fault and fault != 'unknown_size':
         with pytest.raises(ConsentVerificationError):
             verify_document_signature(pdf, CMS, iin)
     else:

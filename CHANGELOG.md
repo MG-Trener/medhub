@@ -148,3 +148,7 @@
 ## 2026-09-30 16:32:46 +05:00 — Добавлены участники команды и их профессиональный опыт в README
 
 Изменены: `README.md`.
+
+## 2026-09-30 16:46:00 +05:00 — Исправлена повторная проверка подписи SIGEX и ошибки входа
+
+Изменены: `backend/app/consent_sigex.py`, `backend/app/identity.py`, `backend/app/identity_xml.py`, `backend/tests/test_identity.py`, `backend/tests/test_patient_consents.py`.

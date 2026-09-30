@@ -45,9 +45,10 @@ def qr_request(method, path, expires, requester=None, **kwargs):
     raise ValueError('qr_expired')
 
 
-def verify(attempt, signature):
+def verify(attempt, signature, checkpoint=None):
     if attempt.data.get('xml'):
-        return verify_xml(signature, attempt.data['xml'], attempt.data.get('expected_iin', ''))
+        return verify_xml(signature, attempt.data['xml'], attempt.data.get('expected_iin', ''),
+                          checkpoint=checkpoint, resume=attempt.data.get('registered'))
     data = sigex_request('POST', '/api/auth', json={'nonce': attempt.data['nonce'], 'signature': signature, 'external': True})
     identity = data.get('userId', '')
     if not re.fullmatch(r'IIN[0-9]{12}', identity):
@@ -62,7 +63,11 @@ def verify(attempt, signature):
 def attempt_for_browser(db, request, attempt_id, lock=False):
     q = select(IdentityAttempt).where(IdentityAttempt.id == attempt_id)
     a = db.scalar(q.with_for_update() if lock else q)
-    if not a or not secrets.compare_digest(a.browser_hash, digest(request.cookies.get('medhub_identity', ''))) or a.expires_at <= now() or a.state in ('consumed', 'failed'):
+    if not a or not secrets.compare_digest(a.browser_hash, digest(request.cookies.get('medhub_identity', ''))) or a.state == 'consumed':
+        raise HTTPException(410, 'Попытка входа истекла. Начните заново')
+    if a.state == 'failed':
+        raise HTTPException(401, a.data.get('error') or 'Подпись не прошла проверку. Начните новую попытку')
+    if a.expires_at <= now():
         raise HTTPException(410, 'Попытка входа истекла. Начните заново')
     return a
 
@@ -75,12 +80,16 @@ def run_qr(attempt_id):
             if not a or a.state != 'pending' or a.expires_at <= now() or not settings().sigex_enabled:
                 return
             data, expires = dict(a.data), a.expires_at
+            if data.get('retry_after', 0) > now():
+                return
         def persist(**values):
             with SessionLocal() as db:
                 a = db.scalar(select(IdentityAttempt).where(IdentityAttempt.id == attempt_id).with_for_update())
                 if a.state != 'pending' or a.expires_at <= now():
                     raise ValueError('attempt_expired')
                 a.data = {**a.data, **values}
+                if values.get('signature'):
+                    a.expires_at = now() + 900
                 db.commit()
         if not data.get('signature'):
             documents = {'signMethod': 'XML', 'version': 1, 'documentsToSign': [{
@@ -99,19 +108,23 @@ def run_qr(attempt_id):
         with SessionLocal() as db:
             a = db.get(IdentityAttempt, attempt_id)
             db.expunge(a)
-        profile = verify(a, data['signature'])
+        profile = verify(a, data['signature'], checkpoint=lambda value: persist(registered=value))
         with SessionLocal() as db:
             a = db.scalar(select(IdentityAttempt).where(IdentityAttempt.id == attempt_id).with_for_update())
             if a.state != 'pending' or a.expires_at <= now() or not settings().sigex_enabled:
                 return
-            a.data = {**a.data, 'profile': profile}
+            a.data = {**a.data, 'profile': profile, 'error': None}
             a.state = 'signed'
             db.commit()
     except Exception as error:
         with SessionLocal() as db:
             a = db.get(IdentityAttempt, attempt_id)
             if a and a.state == 'pending':
+                message = str(error) if isinstance(error, ConsentVerificationError) else 'Подпись не прошла проверку документа или ИИН. Начните новую попытку'
+                a.data = {**a.data, 'error': message}
                 if isinstance(error, ConsentVerificationError) and error.retryable and a.expires_at > now():
+                    a.data = {**a.data, 'retry_after': now() + 10}
+                    db.commit()
                     return  # Следующий опрос повторит проверку сохранённой подписи.
                 a.state = 'failed'
                 db.commit()
@@ -148,7 +161,7 @@ def start(method: str, body: IdentityStart, request: Request, response: Response
         a = IdentityAttempt(browser_hash=digest(token), capability_hash=digest(secrets.token_urlsafe(32)), purpose=body.purpose, data=data, expires_at=expires)
         db.add(a)
         db.commit()
-        response.set_cookie('medhub_identity', token, httponly=True, secure=settings().secure_cookies, samesite='strict', max_age=300)
+        response.set_cookie('medhub_identity', token, httponly=True, secure=settings().secure_cookies, samesite='lax', max_age=1200)
         if method == 'qr':
             background.add_task(run_qr, a.id)
         return {'id': a.id, 'document_xml': xml, 'sign_format': 'xml', 'expires_at': expires, **presentation}
@@ -159,9 +172,10 @@ def start(method: str, body: IdentityStart, request: Request, response: Response
 @router.get('/identity/{attempt_id}')
 def state(attempt_id: str, request: Request, background: BackgroundTasks, db=Depends(db_session)):
     a = attempt_for_browser(db, request, attempt_id)
-    if a.state == 'pending' and a.data.get('method') == 'qr':
+    if a.state == 'pending' and (a.data.get('method') == 'qr' or a.data.get('signature')):
         background.add_task(run_qr, a.id)
-    return {'id': a.id, 'purpose': a.purpose, 'state': a.state, 'expires_at': a.expires_at,
+    return {'id': a.id, 'purpose': a.purpose, 'state': 'verifying' if a.state == 'pending' and a.data.get('signature') else a.state,
+            'error': a.data.get('error'), 'expires_at': a.expires_at,
             **{k: a.data[k] for k in ('qr_image', 'launch_url') if k in a.data}}
 
 
@@ -170,18 +184,18 @@ def signature(attempt_id: str, body: Signature, request: Request, db=Depends(db_
     a = attempt_for_browser(db, request, attempt_id, True)
     if a.state != 'pending' or a.data['method'] != 'eds':
         raise HTTPException(409, 'Подпись уже обработана')
-    try:
-        profile = verify(a, body.signature)
-    except (httpx.HTTPError, ValueError, KeyError, ConsentVerificationError):
-        a.state = 'failed'
-        db.commit()
-        raise HTTPException(401, 'SIGEX отклонил подпись')
-    if a.expires_at <= now() or not settings().sigex_enabled:
-        raise HTTPException(410, 'Попытка истекла. Начните заново')
-    a.data = {**a.data, 'profile': profile}
-    a.state = 'signed'
+    if a.data.get('signature'):
+        if not secrets.compare_digest(a.data['signature'].encode(), body.signature.encode()):
+            raise HTTPException(409, 'Другая подпись уже принята для проверки')
+        return {'state': 'verifying'}
+    a.data = {**a.data, 'signature': body.signature}
+    a.expires_at = now() + 900
     db.commit()
-    return {'state': 'signed'}
+    # Единый обработчик и блокировка для NCALayer, QR и повторного опроса.
+    run_qr(attempt_id)
+    db.expire_all()
+    a = attempt_for_browser(db, request, attempt_id)
+    return {'state': 'signed' if a.state == 'signed' else 'verifying'}
 
 
 @router.post('/identity/{attempt_id}/finish')

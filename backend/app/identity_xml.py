@@ -53,7 +53,7 @@ def fields(root, signature=None):
     return result
 
 
-def verify_xml(signed, expected, expected_iin=''):
+def verify_xml(signed, expected, expected_iin='', *, checkpoint=None, resume=None):
     root = parse(signed)
     signatures = root.findall('.//{' + DS + '}Signature')
     if len(signatures) != 1 or signatures[0].getparent() is not root:
@@ -90,6 +90,6 @@ def verify_xml(signed, expected, expected_iin=''):
     algorithm = algorithms[-1] if len(algorithms) == 2 else C14N
     content = etree.tostring(unsigned, method='c14n', exclusive=algorithm.startswith(EXCLUSIVE), with_comments=algorithm.endswith('WithComments'))
     register_signature(content, etree.tostring(signature, encoding='unicode'), iin, sign_type='xml',
-                       title='Smart Consult — одноразовое подтверждение входа')
+                       title='Smart Consult — одноразовое подтверждение входа', checkpoint=checkpoint, resume=resume)
     names = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
     return {'identity': 'IIN' + iin, 'name': names[0].value if names else 'Врач'}

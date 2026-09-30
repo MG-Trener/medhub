@@ -48,6 +48,8 @@ def register_signature(pdf_bytes, signature, expected_iin, sign_type='cms', titl
                 # Только техническая категория: ответы могут содержать персональные данные.
                 raw = str(value.get('message', '')).lower()
                 category = 'доступ запрещён' if any(x in raw for x in ('access', 'permission', 'authentication', 'unauthorized')) else 'подпись отклонена'
+                if raw == 'this signature has already been submitted':
+                    category = 'подпись уже зарегистрирована; начните новую попытку подписания'
                 temporary = any(x in raw for x in ('timeout', 'temporar', 'ocsp', 'tsp', 'timestamp', 'connection', 'unavailable'))
                 request_id = str(value.get('requestID', ''))
                 reference = f' (запрос {request_id})' if re.fullmatch(r'[A-Za-z0-9_-]{1,100}', request_id) else ''
@@ -77,7 +79,10 @@ def register_signature(pdf_bytes, signature, expected_iin, sign_type='cms', titl
         if checkpoint: checkpoint(registered)
         associated = checked(client, f'/api/{document_id}/data', 'сопоставление документа', content=pdf_bytes,
                              headers={'Content-Type': 'application/octet-stream'})
-        if (associated.get('documentId') != document_id or associated.get('signedDataSize') != len(pdf_bytes)
+        # SIGEX документирует 0 как неизвестный размер. Проверка /verify ниже
+        # обязательна и проверяет подпись именно переданных байтов.
+        if (associated.get('documentId') != document_id or type(associated.get('signedDataSize')) is not int
+                or associated['signedDataSize'] not in (0, len(pdf_bytes))
                 or not isinstance(associated.get('digests'), dict) or not associated['digests']):
             raise ConsentVerificationError('SIGEX не подтвердил содержимое PDF согласия')
         verified = checked(client, f'/api/{document_id}/verify', 'проверка документа', content=pdf_bytes,
