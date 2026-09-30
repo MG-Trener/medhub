@@ -23,7 +23,8 @@ def test_targeted_regeneration_preserves_other_fields_and_manual_diagnosis():
     assert merge_generated_fields(result, generated, target='ai_diagnosis_variants') == result
     all_fields = merge_generated_fields(existing, generated)
     assert all_fields['diagnosis'] == existing['diagnosis'] and all_fields['diagnosis_code'] == 'I10'
-    assert all_fields['complaints'] == 'Правка врача\n\nНовый факт'
+    assert all_fields['complaints'] == 'Правка врача'
+    assert any('Новый факт' in text for text in all_fields['warnings'])
 
 
 def test_all_current_context_is_masked_including_ai_edits():

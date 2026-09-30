@@ -37,7 +37,8 @@ def test_automatic_analysis_archive_approval_and_mis(client, doctor, monkeypatch
     assert process_one()
     assert client.get(f'/api/v1/jobs/{job["job_id"]}').json()['state'] == 'done'
     saved = client.get(f'/api/v1/encounters/{e["id"]}').json()
-    assert saved['fields']['complaints'] == 'Синтетическая запись для проверки\n\nБоль в горле'
+    assert saved['fields']['complaints'] == 'Синтетическая запись для проверки'
+    assert any('Боль в горле' in warning for warning in saved['fields']['warnings'])
     assert saved['speaker_roles']['SPEAKER_00'] == 'patient'
     records = client.get(f'/api/v1/encounters/{e["id"]}/recordings').json()
     assert records[0]['available'] and records[0]['transcript']
@@ -59,7 +60,7 @@ def test_automatic_analysis_archive_approval_and_mis(client, doctor, monkeypatch
     assert approved.status_code == 200
     assert client.get('/api/v1/integration' + audio_path, headers=headers).content == audio
     exported = client.get(f'/api/v1/integration/encounters/{e["id"]}', headers=headers).json()
-    assert exported['encounter']['fields']['sources'][0]['segments'] == [0]
+    assert exported['encounter']['fields']['sources'] == []
     history = client.get(f'/api/v1/encounters/{e["id"]}/history').json()
     assert any(x['action'] == 'approve' for x in history)
     outsider = TestClient(app, headers={'X-Medhub-Request': '1'})

@@ -50,6 +50,16 @@ def test_empty_encounters_never_persist_and_finished_token_cannot_replay(client,
         assert db.scalar(select(func.count()).select_from(Encounter)) == 0
 
 
+def test_active_filter_only_returns_current_doctors_unfinished_visits(client, doctor):
+    p = patient(client)
+    e = materialize(client, start(client, p), {'complaints': 'Синтетическая запись'}).json()
+    assert [item['id'] for item in client.get('/api/v1/encounters?status=active').json()] == [e['id']]
+    other = other_doctor()
+    assert other.get('/api/v1/encounters?status=active').json() == []
+    assert client.post(f'/api/v1/encounters/{e["id"]}/finish', json={'version': e['version']}).status_code == 200
+    assert client.get('/api/v1/encounters?status=active').json() == []
+
+
 def test_common_consent_does_not_elevate_legacy_permissions(client, doctor):
     p = patient(client, True)
     assert p['processing_consent'] is False

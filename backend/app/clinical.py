@@ -49,7 +49,7 @@ def export_without_ai(export):
 
 
 def merge_generated_fields(existing, generated, *, new_transcript=False, target='all'):
-    """Дополняет запись врача; повторный анализ не дублирует тот же текст."""
+    """Заполняет пустые поля; существующие записи не меняются без проверки врача."""
     from .schemas import Consultation
     result = Consultation.model_validate(existing).model_dump()
     incoming = Consultation.model_validate(generated).model_dump()
@@ -67,6 +67,9 @@ def merge_generated_fields(existing, generated, *, new_transcript=False, target=
             continue  # Внесённый диагноз врача не дополняется предположениями модели.
         old, addition = result[key], incoming[key].strip()
         if not addition or normalize(addition) in normalize(old):
+            continue
+        if old.strip():
+            warnings.append(f'Предложение для {key}: {addition}. Текущая запись сохранена; проверьте перед внесением.')
             continue
         if old.strip() and key in scalar_fields:
             warnings.append(f'Поле {key}: сохранено «{old}»; в расшифровке «{addition}». Проверьте различие.')

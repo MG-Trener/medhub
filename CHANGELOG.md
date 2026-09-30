@@ -137,3 +137,7 @@
 ## 2026-09-30 16:21:50 +05:00 — Подготовлен Windows GPU-узел ASR и экспериментальный профиль LM Studio с проверкой качества
 
 Изменены: `.env.example`, `.gitignore`, `backend/app/config.py`, `backend/app/providers.py`, `backend/tests/test_asr_runtime_profile.py`, `backend/tests/test_providers.py`, `deploy/gpu/README.md`, `deploy/gpu/windows/WINDOWS.md`, `deploy/gpu/windows/check-runtime.py`, `deploy/gpu/windows/requirements.lock`, `deploy/gpu/windows/start-asr.ps1`, `deploy/gpu/windows/start-llm.ps1`, `scripts/download_models.py`, `scripts/evaluate_local_models.py`.
+
+## 2026-09-30 16:47:59 +05:00 — Компактный кабинет врача с вкладками и защитой активного приёма
+
+Изменены: `backend/app/clinical.py`, `backend/app/main.py`, `backend/tests/test_clinical_merge.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_live.py`, `backend/tests/test_regeneration.py`, `backend/tests/test_visit_lifecycle.py`, `docs/compact-workspace-prompt.md`, `docs/compact-workspace-validation.md`, `frontend/src/App.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/ConsentSigning.vue`, `frontend/src/Consultation.vue`, `frontend/src/DiagnosisPicker.vue`, `frontend/src/PagedText.vue`, `frontend/src/Pager.vue`, `frontend/src/main.js`, `frontend/src/text-pages.js`, `frontend/src/workspace.css`, `frontend/tests/preview-server.mjs`, `frontend/tests/text-pages.test.js`.

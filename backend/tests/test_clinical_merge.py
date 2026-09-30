@@ -18,11 +18,12 @@ def test_merge_preserves_all_existing_fields_and_does_not_duplicate():
         diagnosis_code='J02.9', ai_test_recommendations='Обсудить обследования',
         ai_diagnosis_variants='Нужны уточнения').model_dump()
     result = merge_generated_fields(old, new)
-    assert result['complaints'] == 'Запись врача\n\nДополнение пациента'
+    assert result['complaints'] == 'Запись врача'
+    assert any('Дополнение пациента' in text for text in result['warnings'])
     assert result['anamnesis'] == 'Два дня' and result['allergies'] == 'Не уточнено'
     assert result['pulse'] == '70' and any('90' in text for text in result['warnings'])
     assert result['diagnosis_code'] == 'I10' and result['visit_type'] == 'repeat'
-    assert result['reviewed_fields'] == ['anamnesis']
+    assert result['reviewed_fields'] == ['complaints', 'anamnesis']
     assert merge_generated_fields(result, new)['complaints'] == result['complaints']
 
 
@@ -54,8 +55,9 @@ def test_worker_adds_to_prefilled_fields_on_both_generation_paths(client, doctor
         assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': saved['version']}).status_code == 202
         assert process_one()
         saved = client.get(f'/api/v1/encounters/{e["id"]}').json()
-    assert saved['fields']['complaints'] == 'Уже внесено врачом\n\nБоль в горле'
-    assert saved['fields']['anamnesis'] == 'Сохранённый анамнез\n\nСо вчерашнего дня'
+    assert saved['fields']['complaints'] == 'Уже внесено врачом'
+    assert saved['fields']['anamnesis'] == 'Сохранённый анамнез'
+    assert any('Боль в горле' in text for text in saved['fields']['warnings'])
     assert saved['fields']['allergies'] == 'Пенициллин'
     assert saved['fields']['recommendations'] == 'Врачебная рекомендация'
     assert saved['fields']['diagnosis'] == 'Ручной диагноз' and saved['fields']['diagnosis_code'] == 'I10'

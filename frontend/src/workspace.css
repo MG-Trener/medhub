@@ -1,0 +1,177 @@
+/* Bounded workspaces: content is paginated, never clipped to fake a fit. */
+.compact-shell{height:100dvh;min-height:0;display:flex;font-size:14px}
+.compact-shell *{box-sizing:border-box}
+.compact-shell .sidebar{width:164px;padding:16px 10px;overflow:visible}
+.compact-shell .platform-brand .umc-branding{max-width:138px;margin:0}
+.compact-shell .platform-brand>strong{font-size:18px;letter-spacing:0}
+.compact-shell .platform-brand>span,.compact-shell .sidebar-bottom,.compact-shell .hackathon-credit{display:none}
+.compact-shell .sidebar nav{margin-top:24px;gap:6px}
+.compact-shell .sidebar nav button{padding:10px 8px;font-size:13px;gap:6px;border-radius:8px}
+.compact-shell .nav-arrow{display:none}
+.compact-shell .doctor-card{margin-top:auto;padding:12px 0 0;gap:4px}
+.compact-shell .doctor-card>svg{display:none}
+.compact-shell .doctor-card strong{font-size:12px;line-height:1.4}
+.compact-shell .main-shell{margin-left:164px;width:calc(100% - 164px);height:100dvh;display:flex;flex-direction:column;min-height:0}
+.compact-shell .topbar{height:36px;min-height:36px;padding:0 12px;position:static}
+.compact-shell main{padding:10px 12px;max-width:none;width:100%;flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.compact-shell h1{font-size:22px;line-height:1.3;margin:0}
+.compact-shell h2{font-size:17px;line-height:1.3;margin:0}
+.compact-shell h3{font-size:16px;line-height:1.3;margin:0}
+.compact-shell p{margin:0}
+.compact-shell .hint{font-size:12px;line-height:1.4}
+.compact-shell label{font-size:13px;line-height:1.4}
+.compact-shell input,.compact-shell select,.compact-shell textarea{font-size:14px;border-radius:6px;padding:7px 9px;min-width:0}
+.compact-shell button,.compact-shell a.secondary{font-size:13px;line-height:1.3;border-radius:7px;min-height:30px;padding:6px 10px;gap:5px}
+.compact-shell .badge,.compact-shell .field-state{font-size:12px;padding:3px 6px;border-radius:5px}
+.compact-shell .panel{border-radius:10px;margin:0;box-shadow:none;min-width:0}
+.compact-shell .section-title{padding:10px 12px}
+.compact-shell .section-title h3{font-size:16px;letter-spacing:0}
+.compact-shell .page-heading,.compact-shell .compact-heading{margin:0}
+.compact-shell .page-heading p,.compact-shell .eyebrow{display:none}
+.compact-shell .back{margin:0;align-self:flex-start}
+.compact-shell .alert{padding:7px 10px;margin:0;font-size:13px;border-radius:6px;line-height:1.35}
+.compact-shell .empty,.compact-shell .empty.compact{padding:16px;gap:6px}
+.compact-shell .empty h3{font-size:18px;margin:0}
+.compact-shell .empty p{font-size:14px;margin:0}
+.workspace-tabs{display:flex;flex-direction:row;gap:4px;flex-wrap:wrap;align-items:center;flex-shrink:0}
+.workspace-tabs button{background:transparent;border:1px solid transparent;color:#796657}
+.workspace-tabs button.active{background:#f2e5d8;color:#65412e;border-color:#dfc3ac;font-weight:650}
+.pane-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}
+.pane-heading h2{display:flex;align-items:center;gap:5px}
+.pager{display:flex;flex-direction:row;align-items:center;justify-content:flex-end;gap:8px;font-size:12px;flex-shrink:0;min-width:0}
+.pager span{overflow-wrap:anywhere;line-height:1.2}
+.pager button{border:1px solid #ddcdbc;background:#fff;min-width:30px;color:#62452f}
+.visit-screen{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px}
+.visit-header{display:flex;align-items:center;gap:8px;min-height:54px;flex-shrink:0;background:#fff;border:1px solid #e7d9cc;border-radius:9px;padding:8px}
+.visit-identity{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.visit-identity strong{font-size:15px;overflow-wrap:anywhere;line-height:1.3}
+.visit-identity small{font-size:12px;color:#887565}
+.visit-controls{display:flex;align-items:center;flex-wrap:wrap;gap:6px;flex-shrink:0}
+.visit-controls>.workspace-tabs{margin-right:auto}
+.compact-feedback{font-size:12px;line-height:1.35;padding:5px 8px;background:#eef4e8;border-radius:5px;flex-shrink:0;overflow-wrap:anywhere}
+.visit-columns{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:10px;flex:1;min-height:0}
+.clinical-pane,.ai-pane,.audio-pane{display:flex;flex-direction:column;gap:8px;padding:12px;min-height:0}
+.clinical-pane>.clinical-field{flex:1;min-height:0;display:flex;flex-direction:column;gap:5px;margin:0}
+.compact-shell .clinical-field-title{gap:6px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.compact-shell .clinical-field-title label{font-size:14px}
+.field-picker{display:flex;flex-direction:row;align-items:center;gap:8px}
+.field-picker select{flex:1;max-width:100%;width:0}
+.compact-shell .field-links{margin:0;min-height:30px;display:flex;justify-content:flex-end}
+.paged-text{display:flex;flex-direction:column;gap:4px;flex:1;min-height:0;min-width:0}
+.compact-shell .paged-text textarea{display:block;flex:1;min-height:36px;width:100%;resize:none;line-height:20px;padding:10px;overflow:hidden;overflow-wrap:anywhere;word-break:break-all;white-space:pre-wrap;color:#3e2e20;background:#fff}
+.compact-shell .paged-text textarea:disabled{opacity:1;color:#675649;background:#faf8f5}
+.paged-text .pager{min-height:30px}
+.compact-vitals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;flex-shrink:0}
+.compact-vitals input{width:100%;margin-top:3px}
+.compact-vitals label{font-size:12px}
+.compact-shell .ai-pane{background:#f0f5f7;border-color:#9fb8c4;border-left:3px solid #789aaa}
+.ai-pane .pane-heading{align-items:flex-start}
+.ai-pane h2{white-space:nowrap;color:#365b6d}
+.compact-shell .regenerate-all{max-width:260px;white-space:normal;text-align:left;font-size:12px;background:#fff;flex:1;min-width:0}
+.regenerate-all svg{flex-shrink:0}
+.ai-pane .workspace-tabs button.active{background:#dceaf0;border-color:#aac5d1;color:#294e5f}
+.ai-pane .ai-label{color:#4a6573}
+.visit-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:6px 0 0;border-top:1px solid #dfcdbc;flex-shrink:0}
+.visit-footer>.hint{margin-right:auto}
+.audio-pane{flex:1;min-height:0}
+.compact-player{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.compact-player select{max-width:240px}
+.compact-player audio{height:34px;flex:1;min-width:150px;max-width:100%}
+.compact-shell .segment-meta{display:flex;gap:8px;align-items:center;flex-shrink:0;margin:0}
+.compact-shell .segment-meta select{max-width:230px}
+.compact-shell .modal{max-height:calc(100dvh - 28px);overflow:visible;border-radius:12px;padding:18px;max-width:650px;display:flex;flex-direction:column;gap:10px}
+.compact-shell .modal h2{font-size:20px}
+.compact-shell .modal .section-title{padding:0}
+.compact-shell .compact-modal p{font-size:14px;line-height:1.45}
+.compact-shell .leave-actions{margin:10px 0 0;gap:8px}
+.compact-shell .form-grid{gap:10px}
+.compact-shell .stack{gap:10px}
+.compact-shell .consent-box{padding:12px;display:flex;flex-direction:column;gap:8px}
+.compact-shell .check{font-size:13px;line-height:1.4;align-items:flex-start}
+.compact-shell .review-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.compact-shell .uploaded-audio{gap:6px;margin:0}
+.compact-shell .uploaded-audio audio{height:32px;width:100%}
+.compact-shell .audio-file-label{padding:8px;font-size:13px;border-radius:6px}
+.compact-shell .audio-file-label input{display:block;width:100%;font-size:12px}
+.compact-shell .search-panel{padding:8px}
+.compact-shell .search-panel .search-row{flex-wrap:nowrap;gap:6px}
+.compact-shell .search-field{min-width:100px;border-radius:6px;gap:5px}
+.compact-shell .search-field input{padding:6px 0;font-size:14px}
+.compact-shell .search-panel button,.compact-shell .search-panel .search-row>.secondary{font-size:13px;padding:7px 9px}
+.compact-shell .patient-card{padding:10px 12px}
+.compact-shell .patient-card-heading h1{font-size:20px;line-height:1.3;margin:0}
+.compact-shell .patient-card-heading p{font-size:12px;margin-top:3px}
+.compact-shell .patient-avatar{width:34px;height:34px;font-size:13px}
+.compact-shell .patient-card .patient-summary{padding:12px 0 0;margin:12px 0 0;gap:12px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.compact-shell .patient-summary strong{font-size:14px}
+.compact-shell .begin-encounter{padding:8px 12px;gap:8px;flex-wrap:nowrap}
+.compact-shell .begin-encounter>div{min-width:130px;flex:1;flex-basis:auto}
+.compact-shell .begin-encounter h3{font-size:15px;margin:0}
+.compact-shell .begin-encounter p{display:none}
+.compact-shell .begin-encounter label{min-width:100px;max-width:220px;font-size:12px}
+.compact-shell .begin-encounter .primary{font-size:13px}
+.compact-shell .table-wrap{overflow:visible}
+.compact-shell table{width:100%;table-layout:fixed}
+.compact-shell th{font-size:10px;padding:9px 8px;white-space:normal}
+.compact-shell td{font-size:13px;padding:8px;overflow-wrap:anywhere}
+.compact-shell th:first-child{width:34%}.compact-shell th:last-child{width:42px}
+.compact-shell .patient-name{min-height:32px;font-size:13px;padding:0;gap:6px}
+.compact-shell .patient-name .avatar{width:28px;height:28px;min-width:28px;font-size:11px}
+.compact-shell .patient-name strong{font-size:13px;line-height:1.3}
+.compact-shell .patient-list,.compact-shell .visit-history{display:flex;flex-direction:column;min-height:0}
+.compact-shell .table-footer{padding:8px;display:flex;align-items:center;justify-content:flex-end;gap:10px;font-size:12px}
+.compact-shell .visit-history>.pager{padding:8px}
+.compact-shell .encounter-row{padding:8px 12px;gap:8px;min-height:54px}
+.compact-shell .encounter-row strong{font-size:14px;line-height:1.3}
+.compact-shell .encounter-row span:not(.badge){font-size:12px;margin-top:1px;line-height:1.3}
+.compact-shell .document-icon{padding:6px;border-radius:6px}
+.compact-shell .list-toolbar{padding:8px 12px;gap:6px}
+.active-visit{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:#f4e5d7;border:1px solid #d6b69b;border-radius:6px;font-size:13px}
+.compact-shell .consent-signing{padding:12px;min-height:0}
+.compact-shell .consent-signing-heading{margin-bottom:8px;gap:8px;align-items:center}
+.compact-shell .consent-signing-heading h3{font-size:16px;margin:0}
+.compact-shell .consent-signing-heading p{font-size:12px}
+.compact-shell .consent-signing .workspace-tabs{margin-bottom:10px}
+.compact-shell .consent-signing .consent-data-notice{font-size:13px;line-height:1.4;margin-bottom:8px}
+.compact-shell .consent-manual-box{padding:10px;margin-bottom:8px;border-radius:6px}
+.compact-shell .consent-manual-box .check{font-size:13px;line-height:1.4}
+.compact-shell .consent-document{padding:10px;border-radius:6px}
+.compact-shell .consent-document-title{margin-bottom:8px}
+.compact-shell .consent-document-title strong{font-size:14px}
+.compact-shell .consent-document-hash{margin:6px 0}
+.compact-shell .consent-acknowledge{margin:8px 0;font-size:13px;line-height:1.4}
+.compact-shell .consent-waiting{margin-top:6px;padding-top:6px}
+.compact-shell .consent-qr{width:132px;height:132px;margin:8px auto;padding:5px}
+.compact-shell .consent-waiting p{font-size:12px;line-height:1.3;margin:6px 0}
+.compact-shell .consent-history{margin:8px 0 0;padding:8px 0 0}
+.compact-shell .consent-history article{margin-top:4px;padding:8px 0}
+.compact-shell .consent-history article strong{font-size:13px}
+.compact-shell .consent-revoke{margin-top:8px;padding:10px}
+.compact-shell .signed-consent dl{gap:8px;margin-bottom:12px}
+.compact-shell .signed-consent dd{font-size:13px}
+.compact-shell .diagnosis-picker{position:relative;flex-shrink:0}
+.compact-shell .diagnosis-picker>.hint{font-size:12px;margin-top:3px}
+.compact-shell .diagnosis-results{position:absolute;z-index:5;top:58px;left:0;right:0;background:#fff;max-height:none;overflow:visible;box-shadow:0 8px 25px #3e2e2022}
+.compact-shell .diagnosis-results button{padding:8px;font-size:13px;white-space:normal}
+.compact-shell.settings-screen{height:auto;min-height:100dvh}
+.compact-shell.settings-screen .main-shell{height:auto;min-height:100dvh}
+@media(max-width:1100px){
+ .compact-shell .sidebar{width:132px;padding:12px 6px}.compact-shell .main-shell{margin-left:132px;width:calc(100% - 132px)}
+ .compact-shell .platform-brand>strong{font-size:16px}.compact-shell .sidebar nav button{font-size:12px;padding:9px 5px}
+ .visit-columns{grid-template-columns:1fr;grid-template-rows:minmax(0,1.25fr) minmax(0,1fr)}
+ .clinical-pane,.ai-pane{padding:9px;gap:5px}.ai-pane .regenerate-all{max-width:360px;flex:none}
+ .compact-shell .clinical-nav button{font-size:12px;padding:4px 6px;min-height:26px}
+ .compact-shell .clinical-field-title{flex-wrap:nowrap}.compact-shell .clinical-field-title label{font-size:13px}
+ .compact-vitals{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px}.compact-vitals input{padding:4px 6px;font-size:12px}.compact-vitals label{font-size:11px}
+ .compact-shell .field-links{min-height:24px}.compact-shell .field-links button{min-height:24px;padding:3px 6px;font-size:12px}
+ .compact-shell .paged-text .pager button{min-height:24px;padding:3px 6px}.paged-text .pager{min-height:24px}
+ .visit-header{flex-wrap:wrap}.visit-identity{min-width:240px}
+}
+@media(max-width:700px){
+ .compact-shell .sidebar{width:104px}.compact-shell .main-shell{margin-left:104px;width:calc(100% - 104px)}
+ .compact-shell .platform-brand>strong{font-size:13px}.compact-shell .sidebar nav button{white-space:normal;font-size:11px}.compact-shell .sidebar nav svg{width:15px}
+ .compact-shell .search-panel .search-row{flex-wrap:wrap}.compact-shell .begin-encounter{flex-wrap:wrap}
+ .visit-footer{flex-wrap:wrap}.ai-pane .pane-heading{flex-wrap:wrap}.compact-shell th:nth-child(3),.compact-shell td:nth-child(3){display:none}
+}
+@media(prefers-reduced-motion:reduce){.compact-shell *{scroll-behavior:auto!important;animation:none!important}}
+@media(max-height:600px){.compact-shell,.compact-shell .main-shell{height:auto;min-height:100dvh}.visit-columns{min-height:650px}.paged-text{min-height:120px}}

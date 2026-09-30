@@ -303,7 +303,9 @@ def start_encounter(patient_id: str, body: EncounterStart | None = None, doctor=
 def my_encounters(status: str = Query('', max_length=30), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), doctor=Depends(current_doctor), db=Depends(db_session)):
     query = select(Encounter).where(Encounter.doctor_id == doctor.id)
     if status:
-        if status == 'unreviewed':
+        if status == 'active':
+            query = query.where(Encounter.ended_at.is_(None))
+        elif status == 'unreviewed':
             query = query.where(Encounter.reviewed_at.is_(None))
         elif status == 'reviewed':
             query = query.where(Encounter.reviewed_at.is_not(None))
