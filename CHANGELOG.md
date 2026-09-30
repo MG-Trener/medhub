@@ -152,3 +152,7 @@
 ## 2026-09-30 16:46:00 +05:00 — Исправлена повторная проверка подписи SIGEX и ошибки входа
 
 Изменены: `backend/app/consent_sigex.py`, `backend/app/identity.py`, `backend/app/identity_xml.py`, `backend/tests/test_identity.py`, `backend/tests/test_patient_consents.py`.
+
+## 2026-09-30 16:46:06 +05:00 — Исправлены подключение NCALayer и отображение проверки ЭЦП
+
+Изменены: `frontend/src/IdentitySigning.vue`, `frontend/src/eds.js`, `frontend/tests/eds.test.js`.

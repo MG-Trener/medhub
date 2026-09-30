@@ -19,7 +19,7 @@ test('согласие подписывает точные байты PDF с TSA
   const result = signData('JVBERi0xLjcKc3ludGhldGlj', { signal: signal.signal })
   await Promise.resolve()
   const socket = sockets[0]
-  assert.equal(socket.url, 'wss://127.0.0.1:13579/')
+  assert.equal(socket.url, 'wss://localhost:13579/')
   assert.equal(socket.request.args.data, 'JVBERi0xLjcKc3ludGhldGlj')
   assert.deepEqual(socket.request.args.signingParams, { decode: true, encapsulate: true, digested: false, tsaProfile: {} })
   assert.deepEqual(socket.request.args.signerParams.extKeyUsageOids, ['1.3.6.1.5.5.7.3.4', '1.2.398.3.3.4.1.1'])
@@ -73,4 +73,25 @@ test('вход подписывает читаемый XML без base64-дек�
   assert.deepEqual(sockets[0].request.args.signingParams, {})
   sockets[0].respond({ status: true, body: { result: '<signed/>' } })
   assert.equal(await result, '<signed/>')
+})
+
+
+test('недоступный localhost переключается на 127.0.0.1 до начала подписания', async t => {
+  const original = globalThis.WebSocket, sockets = []
+  globalThis.WebSocket = class {
+    constructor(url) { this.url=url; sockets.push(this); queueMicrotask(()=>url.includes('localhost') ? this.onerror() : this.onopen()) }
+    close() { this.onclose?.() }
+    send(value) { this.request=JSON.parse(value); queueMicrotask(()=>this.onmessage({data:JSON.stringify({status:true,body:{result:'synthetic-signature'}})})) }
+  }
+  t.after(()=>{globalThis.WebSocket=original})
+  assert.equal(await signData('cGRm'), 'synthetic-signature')
+  assert.deepEqual(sockets.map(x=>x.url),['wss://localhost:13579/','wss://127.0.0.1:13579/'])
+})
+
+test('отмена пользователем не открывает второй запрос подписи', async t => {
+  const sockets=socketFixture(t), result=signData('cGRm')
+  await Promise.resolve()
+  sockets[0].respond({status:false,code:'USER_CANCELLED'})
+  await assert.rejects(result,/Подписание отменено/)
+  assert.equal(sockets.length,1)
 })

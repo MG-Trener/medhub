@@ -21,7 +21,7 @@ async function poll() {
   try {
     const status = await api(`/auth/identity/${id}`)
     if (stopped || token !== generation) return
-    attempt.value = { ...attempt.value, ...status }; error.value = ''
+    attempt.value = { ...attempt.value, ...status }; error.value = status.error || ''
     if (status.state === 'signed') await finish(status.id)
   } catch (e) {
     if (!stopped && token === generation) { error.value = e.message; if ([401, 403, 409, 410].includes(e.status)) forget() }
@@ -38,8 +38,13 @@ async function start(method) {
     if (stopped) return
     if (method === 'eds') {
       const signature = await signXml(session.document_xml, { signal: controller.signal })
-      await api(`/auth/identity/${session.id}/signature`, { method: 'POST', body: { signature } })
-      await finish(session.id)
+      const result = await api(`/auth/identity/${session.id}/signature`, { method: 'POST', body: { signature } })
+      if (result.state === 'signed') await finish(session.id)
+      else {
+        attempt.value = { ...session, ...result }
+        sessionStorage.setItem(storage, JSON.stringify({ id: session.id, purpose: props.purpose }))
+        timer = setTimeout(poll, 1500)
+      }
     } else {
       attempt.value = session; sessionStorage.setItem(storage, JSON.stringify({ id: session.id, purpose: props.purpose }))
       timer = setTimeout(poll, 1500)
@@ -63,8 +68,9 @@ onBeforeUnmount(() => { stopped = true; clearTimeout(timer); controller?.abort()
   <div v-if="error" class="alert error" role="alert">{{ error }}</div>
   <div v-if="attempt" class="qr-box">
     <img v-if="attempt.qr_image" :src="attempt.qr_image" alt="QR для подписания XML в eGov Mobile">
-    <p>Подпишите XML подтверждения входа. На компьютере отсканируйте QR телефоном.</p>
-    <a v-if="attempt.launch_url" class="secondary" :href="attempt.launch_url">Открыть eGov Mobile на этом телефоне</a>
+    <p v-if="attempt.state === 'verifying'" role="status">Подпись получена. Проверяем сертификат и документ в SIGEX…</p>
+    <p v-else>Подпишите XML подтверждения входа. На компьютере отсканируйте QR телефоном.</p>
+    <a v-if="attempt.launch_url && attempt.state !== 'verifying'" class="secondary" :href="attempt.launch_url">Открыть eGov Mobile на этом телефоне</a>
     <button class="text-button" @click="poll">Я подписал — проверить статус</button>
   </div>
 </template>
