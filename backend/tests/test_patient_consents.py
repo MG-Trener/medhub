@@ -294,3 +294,41 @@ def test_verification_checkpoint_avoids_duplicate_registration_after_timeout(mon
     assert error.value.retryable and checkpoint['documentId'] == 'test-document'
     assert verify_document_signature(pdf, CMS, iin, resume=checkpoint)['verified']
     assert paths.count('/api') == 1
+
+
+def test_strict_recording_routes_require_verified_signature_and_honor_revocation(client, doctor, monkeypatch):
+    from uuid import uuid4
+    from sqlalchemy import func
+    from app.db import Encounter, Job
+    from test_visit_lifecycle import start, upload as upload_file
+    from test_live import upload as upload_part, part
+
+    # Старая ручная отметка не должна обходить включённое требование ЭЦП.
+    p = patient(client, True)
+    client.patch(f'/api/v1/patients/{p["id"]}/consent', json={'processing_consent': True}).raise_for_status()
+    p, consent = prepared(client, monkeypatch, p)
+    monkeypatch.setattr(settings(), 'consent_signature_required', True)
+    e = start(client, p)
+    lease_url = f'/api/v1/encounters/{e["id"]}/capture-lease'
+    body = {'draft_token': e['draft_token']}
+
+    def denied(token=None):
+        assert client.post(lease_url, json=body).status_code == 403
+        assert upload_file(client, e, **({'capture_token': token} if token else {})).status_code == 403
+        assert upload_part(client, e, str(uuid4()), 0, part(1)).status_code == 403
+        with SessionLocal() as db:
+            assert db.scalar(select(func.count()).select_from(Encounter)) == 0
+            assert db.scalar(select(func.count()).select_from(Job)) == 0
+
+    assert client.get(f'/api/v1/patients/{p["id"]}').json()['ai_processing_allowed'] is False
+    denied()  # Документ ещё не подписан.
+    attempt, path = started(client, consent)
+    denied()  # Открытый QR / NCALayer не равен проверенной подписи.
+    valid_proof(monkeypatch)
+    signed = client.post(path + '/signature', json={'signature': CMS})
+    assert signed.status_code == 200 and signed.json()['patient']['ai_processing_allowed']
+    lease = client.post(lease_url, json=body)
+    assert lease.status_code == 200, lease.text
+    token = lease.json()['capture_token']
+    client.post(f'/api/v1/patient-consents/{consent["id"]}/revoke', json={}).raise_for_status()
+    denied(token)  # Уже выданное разрешение не обходит отзыв согласия.

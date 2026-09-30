@@ -1,4 +1,4 @@
-export const hasConsent = patient => patient?.processing_consent ?? !!(patient?.recording_consent && patient?.cloud_consent && patient?.cloud_audio_consent && patient?.openai_audio_consent)
+export const hasConsent = patient => patient?.ai_processing_allowed !== false && (patient?.processing_consent ?? !!(patient?.recording_consent && patient?.cloud_consent && patient?.cloud_audio_consent && patient?.openai_audio_consent))
 
 export function visitSeconds(encounter, now) {
   return Math.max(0, Math.floor((encounter.ended_at || encounter.paused_at || now) - (encounter.started_at || encounter.created_at || now) - (encounter.paused_seconds || 0)))
@@ -9,7 +9,7 @@ export function recordingSecondsLeft(encounter, now) {
 }
 
 export function canCapture(encounter, patient, now) {
-  return hasConsent(patient) && !encounter.read_only && encounter.can_edit !== false && !encounter.ended_at && !encounter.paused_at && recordingSecondsLeft(encounter, now) > 0
+  return hasConsent(patient) && encounter.recording_allowed !== false && !encounter.read_only && encounter.can_edit !== false && !encounter.ended_at && !encounter.paused_at && recordingSecondsLeft(encounter, now) > 0
 }
 
 export function formatDuration(value) {

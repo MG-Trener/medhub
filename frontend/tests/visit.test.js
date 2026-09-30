@@ -30,3 +30,12 @@ test('ИМТ рассчитывается только из числовых и�
   assert.equal(bodyMassIndex({ height: '0', weight: '80' }), '')
   assert.equal(bodyMassIndex({ height: 'не измерен', weight: '80' }), '')
 })
+
+
+test('серверный запрет и неподтверждённое согласие блокируют запись несмотря на старую отметку', () => {
+  const encounter = { started_at: 1000, recording_deadline: 1900, recording_allowed: true }
+  assert.equal(canCapture(encounter, { processing_consent: true, ai_processing_allowed: false }, 1200), false)
+  assert.equal(canCapture({ ...encounter, recording_allowed: false }, { processing_consent: true, ai_processing_allowed: true }, 1200), false)
+  assert.equal(canCapture(encounter, { processing_consent: false, ai_processing_allowed: false }, 1200), false)
+  assert.equal(canCapture(encounter, { processing_consent: true, ai_processing_allowed: true }, 1200), true)
+})

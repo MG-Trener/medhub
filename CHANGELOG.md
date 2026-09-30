@@ -137,3 +137,6 @@
 ## 2026-09-30 16:21:50 +05:00 — Подготовлен Windows GPU-узел ASR и экспериментальный профиль LM Studio с проверкой качества
 
 Изменены: `.env.example`, `.gitignore`, `backend/app/config.py`, `backend/app/providers.py`, `backend/tests/test_asr_runtime_profile.py`, `backend/tests/test_providers.py`, `deploy/gpu/README.md`, `deploy/gpu/windows/WINDOWS.md`, `deploy/gpu/windows/check-runtime.py`, `deploy/gpu/windows/requirements.lock`, `deploy/gpu/windows/start-asr.ps1`, `deploy/gpu/windows/start-llm.ps1`, `scripts/download_models.py`, `scripts/evaluate_local_models.py`.
+## 2026-09-30 16:23:36 +05:00 — Обязательная ЭЦП согласия пациента и компактные кнопки записи
+
+Изменены: `.env.example`, `README.md`, `backend/app/config.py`, `backend/tests/test_patient_consents.py`, `docs/sigex-patient-consent.md`, `frontend/src/App.vue`, `frontend/src/Consultation.vue`, `frontend/src/consultation.css`, `frontend/src/visit.js`, `frontend/tests/visit.test.js`.

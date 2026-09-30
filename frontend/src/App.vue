@@ -34,7 +34,7 @@ const consent = p => p?.ai_processing_allowed ?? p?.processing_consent ?? !!(p?.
 const encounterStatus = e => e.status === 'processing' && e.reviewed_at ? 'Отправка в МИС' : statuses[e.status]
 const encounterTitle = e => (e.visit_type || e.fields?.visit_type) === 'repeat' ? 'Повторная консультация' : 'Первичная консультация'
 const canResume = computed(() => pausedEncounter.value && pausedEncounter.value.patient_id === patient.value?.id && !pausedEncounter.value.ended_at)
-const signatureRequired = computed(() => consentPolicy.value?.signature_required ?? settings.value.consent_signature_required ?? false)
+const signatureRequired = computed(() => consentPolicy.value?.signature_required ?? settings.value.consent_signature_required ?? true)
 watch(search, value => { if (!value.trim()) { patients.value = []; searched.value = false; morePatients.value = false } })
 
 async function run(fn) { error.value = ''; busy.value = true; try { await fn() } catch (e) { error.value = e.message; if (e.status === 401) doctor.value = null } finally { busy.value = false } }

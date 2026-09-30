@@ -46,3 +46,29 @@
 .final-result .final-actions{position:static;display:flex;flex-wrap:wrap;gap:12px}
 .final-result .final-actions button{flex:1;justify-content:center}
 @media(max-width:700px){.ai-advisory-grid{grid-template-columns:1fr}.ai-advisory-content{padding:0 19px 20px}.transcript-disclosure>summary .hint{display:block;margin:8px 0 0}.final-result .final-actions{padding:19px}}
+
+/* Компактная панель записи: действия не растягиваются по всей ширине листа. */
+.transcript-panel .conversation-recording{padding:0 26px 22px}
+.conversation-recording .recording-meter{display:flex;flex-wrap:nowrap;gap:14px;margin:16px 0;padding:16px 18px;min-height:76px;background:#F9F5F1;border:1px solid #E9CFBA;border-radius:16px}
+.conversation-recording .record-clock{font-size:28px;font-weight:600;margin:0;flex:none}
+.conversation-recording .recording-status{font-size:13px;color:#887565;line-height:1.4}
+.conversation-recording .recording-status.active{color:#A03A35}
+.conversation-recording .recording-status.paused{color:#8A5C43}
+.conversation-recording .recording-meter .record-wave{display:flex;flex:0 1 150px;margin-left:auto;height:40px;justify-content:flex-end;overflow:hidden}
+.consultation-left .record-buttons{gap:12px;margin:0 0 12px;align-items:center}
+.consultation-left .record-buttons button{flex:0 1 auto;width:auto;min-height:46px;padding:12px 20px;border-radius:14px;font-size:14px}
+.conversation-recording button svg{flex-shrink:0}
+.conversation-recording .microphone-settings{margin:18px 0}
+.conversation-recording .microphone-settings summary{cursor:pointer;color:#8A5C43;font-size:14px}
+.audio-upload-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px;border-top:1px solid #E9CFBA;padding-top:18px;margin-top:18px}
+.audio-upload-row button{min-height:44px;border-radius:14px;font-size:14px}
+.audio-upload-row .hint{flex:1 1 220px}
+.audio-file-input{display:none}
+@media(max-width:700px){
+ .transcript-panel .conversation-recording{padding:0 19px 18px}
+ .conversation-recording .recording-meter{padding:12px;gap:10px}
+ .conversation-recording .record-clock{font-size:24px}
+ .conversation-recording .recording-meter .record-wave{flex-basis:65px}
+ .consultation-left .record-buttons button{flex:1 1 100%;width:100%}
+ .audio-upload-row button{width:100%}
+}
