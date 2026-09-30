@@ -37,12 +37,14 @@ def test_merge_keeps_original_at_field_limit_and_discards_obsolete_sources():
 def test_worker_adds_to_prefilled_fields_on_both_generation_paths(client, doctor, monkeypatch, automatic):
     p, e = prepare(client, monkeypatch)
     fields = Consultation(complaints='Уже внесено врачом', anamnesis='Сохранённый анамнез',
-        allergies='Пенициллин', recommendations='Врачебная рекомендация').model_dump()
+        allergies='Пенициллин', recommendations='Врачебная рекомендация', diagnosis='Ручной диагноз', diagnosis_code='I10',
+        ai_diagnosis_variants='Прежний вариант').model_dump()
     e = client.patch(f'/api/v1/encounters/{e["id"]}', json={'version': e['version'], 'fields': fields}).json()
     generated = Consultation(complaints='Боль в горле', anamnesis='Со вчерашнего дня',
+        diagnosis='Диагноз от модели', diagnosis_code='J02.9',
         ai_test_recommendations='AI_TESTS_SENTINEL', ai_diagnosis_variants='AI_VARIANTS_SENTINEL',
         diagnosis_suggestions=[{'code': 'J02.9', 'name': 'AI_CODE_SENTINEL'}]).model_dump()
-    monkeypatch.setattr('app.worker.generate', lambda _: {'fields': generated, 'speaker_roles': {'SPEAKER_00': 'patient'}})
+    monkeypatch.setattr('app.worker.generate', lambda *args: {'fields': generated, 'speaker_roles': {'SPEAKER_00': 'patient'}})
     response = client.post(f'/api/v1/encounters/{e["id"]}/audio', data={'analyze': str(automatic).lower()},
         files={'file': ('synthetic.wav', audio_bytes(), 'audio/wav')})
     assert response.status_code == 202
@@ -56,6 +58,8 @@ def test_worker_adds_to_prefilled_fields_on_both_generation_paths(client, doctor
     assert saved['fields']['anamnesis'] == 'Сохранённый анамнез\n\nСо вчерашнего дня'
     assert saved['fields']['allergies'] == 'Пенициллин'
     assert saved['fields']['recommendations'] == 'Врачебная рекомендация'
+    assert saved['fields']['diagnosis'] == 'Ручной диагноз' and saved['fields']['diagnosis_code'] == 'I10'
+    assert saved['fields']['ai_diagnosis_variants'] == 'Прежний вариант\n\nAI_VARIANTS_SENTINEL'
     assert saved['fields']['ai_test_recommendations'] == 'AI_TESTS_SENTINEL'
     approved = client.post(f'/api/v1/encounters/{e["id"]}/approve', json={'version': saved['version']})
     assert approved.status_code == 200

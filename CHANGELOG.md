@@ -97,3 +97,7 @@
 ## 2026-09-30 14:55:29 +05:00 — Развёрнута форма приёма на всю ширину, итог перенесён вниз, расшифровка свёрнута
 
 Изменены: `README.md`, `docs/verification-2026-09-30-ai-advisory.md`, `frontend/src/Consultation.vue`, `frontend/src/consultation.css`.
+
+## 2026-09-30 15:12:31 +05:00 — Добавлены нормализация реквизитов и повторный анализ с учётом правок врача
+
+Изменены: `backend/app/clinical.py`, `backend/app/main.py`, `backend/app/patient_input.py`, `backend/app/privacy.py`, `backend/app/providers.py`, `backend/app/schemas.py`, `backend/app/worker.py`, `backend/tests/test_clinical_merge.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_patient_input.py`, `backend/tests/test_regeneration.py`, `backend/tests/test_workflow.py`.

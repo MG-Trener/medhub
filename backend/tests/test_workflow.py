@@ -111,13 +111,13 @@ def test_worker_transcription_and_generation(client, doctor, monkeypatch):
     assert 'Алия' not in e['redacted_transcript'][0]['text']
     assert client.get(f'/api/v1/encounters/{e["id"]}/recordings').json()[0]['available'] is True
     e = client.patch(f'/api/v1/encounters/{e["id"]}', json={'version': e['version'], 'fields': Consultation(diagnosis='Запись врача').model_dump()}).json()
-    monkeypatch.setattr('app.worker.generate', lambda segments: {'fields': Consultation(complaints='Тестовая жалоба', diagnosis='Ответ модели', ai_conclusion='Описаны жалобы; требуются уточнения.').model_dump(), 'speaker_roles': {'SPEAKER_00': 'patient'}})
+    monkeypatch.setattr('app.worker.generate', lambda segments, *args: {'fields': Consultation(complaints='Тестовая жалоба', diagnosis='Ответ модели', ai_test_recommendations='Описаны жалобы; требуются уточнения.').model_dump(), 'speaker_roles': {'SPEAKER_00': 'patient'}})
     assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': e['version']}).status_code == 202
     assert process_one()
     e = client.get(f'/api/v1/encounters/{e["id"]}').json()
     assert e['fields']['complaints'] == 'Тестовая жалоба' and e['speaker_roles']['SPEAKER_00'] == 'patient'
-    assert e['fields']['diagnosis'] == 'Запись врача\n\nОтвет модели'
-    assert e['fields']['ai_conclusion'] == 'Описаны жалобы; требуются уточнения.'
+    assert e['fields']['diagnosis'] == 'Запись врача'
+    assert e['fields']['ai_test_recommendations'] == 'Описаны жалобы; требуются уточнения.'
     assert e['ai_notice']['disclaimer'] == AI_CONCLUSION_NOTICE
     assert e['reviewed_at'] is None and e['status'] == 'ready'
 

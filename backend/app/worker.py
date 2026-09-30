@@ -8,7 +8,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy import select
 from .config import settings
 from .db import SessionLocal, Job, Encounter, Patient, audit, now
-from .privacy import redact_segments
+from .privacy import redact_segments, redact_clinical_context
 from .providers import transcribe, generate, cloud_transcribe, ProviderError
 from .audio_privacy import mask_audio
 from .clinical import export_without_ai, merge_generated_fields
@@ -55,6 +55,7 @@ def process_one():
             if kind == 'cloud_asr' and (not p.data.get('cloud_audio_consent') or not e.privacy_reviewed):
                 raise ProviderError('Согласие на облако или проверка маскирования отсутствует')
             patient_data = p.data
+            clinical_context = redact_clinical_context(e.fields, patient_data)
             export = {'schema_version': '1.1', 'encounter': {k: getattr(e, k) for k in ('id', 'patient_id', 'fields', 'transcript', 'speaker_roles', 'reviewed_at', 'version', 'created_at', 'started_at', 'ended_at', 'paused_seconds', 'sent_at', 'previous_encounter_id')}, 'patient': {'id': p.id, 'external_id': p.external_id, **p.data}, 'doctor_id': e.doctor_id}
             export['recordings_url'] = f'/api/v1/integration/encounters/{e.id}/recordings'
             export = export_without_ai(payload.get('export') or export)
@@ -89,11 +90,11 @@ def process_one():
                         current = progress.get(Job, job_id)
                         current.payload = {**current.payload, 'stage': 'generating'}
                         progress.commit()
-                    generated = generate(redacted)
+                    generated = generate(redacted, clinical_context, 'all')
                 except Exception as error:
                     analysis_error = str(error) if isinstance(error, ProviderError) else 'Генерация не завершена. Расшифровка сохранена; повторите анализ или заполните лист вручную.'
         elif kind == 'generate':
-            result = generate(transcript)
+            result = generate(transcript, clinical_context, payload.get('target', 'all'))
         elif kind in ('mute_audio', 'cloud_asr'):
             path = Path(settings().audio_dir) / Path(payload['masked_audio']).name
             masked = Fernet(settings().encryption_key.encode()).decrypt(path.read_bytes())
@@ -149,8 +150,9 @@ def process_one():
             elif kind == 'generate':
                 if settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not (settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')))):
                     raise ProviderError('Согласие на облако отозвано. Результат удалён.')
-                e.fields = merge_generated_fields(e.fields, result['fields'])
-                e.speaker_roles = result['speaker_roles']
+                e.fields = merge_generated_fields(e.fields, result['fields'], target=payload.get('target', 'all'))
+                if payload.get('target', 'all') == 'all':
+                    e.speaker_roles = result['speaker_roles']
                 e.reviewed_at = None
             elif kind == 'mute_audio':
                 e.privacy_reviewed = False

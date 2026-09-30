@@ -27,7 +27,7 @@ def prepare(client, monkeypatch):
 
 def test_automatic_analysis_archive_approval_and_mis(client, doctor, monkeypatch):
     p, e = prepare(client, monkeypatch)
-    def generate(segments):
+    def generate(segments, *args):
         assert 'Алия' not in segments[0]['text']
         return {'fields': Consultation(complaints='Боль в горле', ai_conclusion='Тестовый черновик',
             sources=[{'field': 'complaints', 'segments': [0]}]).model_dump(), 'speaker_roles': {'SPEAKER_00': 'patient'}}

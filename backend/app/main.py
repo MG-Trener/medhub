@@ -16,8 +16,9 @@ from starlette.concurrency import run_in_threadpool
 from .config import settings
 from .db import Doctor, Session, ApiKey, Patient, PatientIdentity, Encounter, Job, Audit, db_session, now, uid, audit
 from .security import current_doctor, integration_doctor, digest, passwords, search_tokens, registration_allowed, issue_session, owned
-from .schemas import Register, Login, PatientInput, Consent, EncounterPatch, EncounterCreate, EncounterStart, LifecycleAction, Consultation, PrivacyReview, Version, CloudAudio, RecordingTranscribe, MuteAudio
+from .schemas import Register, Login, PatientInput, Consent, EncounterPatch, EncounterCreate, EncounterStart, LifecycleAction, Consultation, PrivacyReview, Version, Regenerate, CloudAudio, RecordingTranscribe, MuteAudio
 from .privacy import redact_segments
+from .patient_input import normalize_iin
 from .clinical import ai_notice, export_without_ai
 from .openai_asr import OPENAI_ASR_MODEL
 from .identity import router as identity_router
@@ -200,6 +201,8 @@ def configuration(doctor=Depends(current_doctor)):
 @app.get('/api/v1/patients', tags=['Пациенты'])
 def patients(q: str = Query('', max_length=150), offset: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100), doctor=Depends(current_doctor), db=Depends(db_session)):
     q = q.strip()
+    if re.fullmatch(r'[0-9]{12}', normalize_iin(q)):
+        q = normalize_iin(q)
     if not q or len(q) < 2:
         return []
     stmt = select(Patient)
@@ -646,17 +649,18 @@ def cloud_asr(encounter_id: str, body: CloudAudio, doctor=Depends(current_doctor
 
 
 @app.post('/api/v1/encounters/{encounter_id}/generate', tags=['Приёмы'], status_code=202)
-def generate(encounter_id: str, body: Version, doctor=Depends(current_doctor), db=Depends(db_session)):
+def generate(encounter_id: str, body: Regenerate, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = owned(db, Encounter, encounter_id, doctor, True)
     verify_version(e, body.version)
-    if not e.transcript:
-        raise HTTPException(422, 'Сначала добавьте расшифровку')
+    from .clinical import DOCUMENT_FIELDS
+    if not e.transcript and not any(e.fields.get(key) for key in DOCUMENT_FIELDS - {'visit_type', 'visit_format'}):
+        raise HTTPException(422, 'Сначала добавьте расшифровку или сведения о приёме')
     p = db.get(Patient, e.patient_id)
     require_patient_signature(db, p)
     direct_openai = settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')
     if settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not direct_openai)):
         raise HTTPException(403, 'Для облачной LLM нужны согласие пациента и проверка маскирования врачом')
-    return queue(db, e, 'generate')
+    return queue(db, e, 'generate', {'target': body.target})
 
 
 @app.post('/api/v1/encounters/{encounter_id}/approve', tags=['Приёмы'])

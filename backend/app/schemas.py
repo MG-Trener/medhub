@@ -1,10 +1,16 @@
 from datetime import date
 from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
+from .patient_input import normalize_iin, normalize_phone, birth_date_from_iin
 
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+
+    @field_validator('iin', mode='before', check_fields=False)
+    @classmethod
+    def canonical_iin(cls, value):
+        return normalize_iin(value)
 
 
 class Register(Strict):
@@ -32,6 +38,20 @@ class PatientInput(Strict):
     cloud_audio_consent: bool = False
     openai_audio_consent: bool = False
     processing_consent: bool | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def infer_birth_date(cls, values):
+        if isinstance(values, dict) and not values.get('birth_date'):
+            inferred = birth_date_from_iin(values.get('iin'))
+            if inferred:
+                return {**values, 'birth_date': inferred}
+        return values
+
+    @field_validator('phone', mode='before')
+    @classmethod
+    def canonical_phone(cls, value):
+        return normalize_phone(value)
 
     @model_validator(mode='after')
     def unified_consent(self):
@@ -155,6 +175,18 @@ class PrivacyReview(Strict):
 
 class Version(Strict):
     version: int = Field(ge=1)
+
+
+class Regenerate(Version):
+    target: str = 'all'
+
+    @field_validator('target')
+    @classmethod
+    def known_target(cls, value):
+        from .clinical import GENERATION_TARGETS
+        if value not in GENERATION_TARGETS:
+            raise ValueError('Неизвестное поле для перегенерации')
+        return value
 
 
 class CloudAudio(Version):

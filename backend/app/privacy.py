@@ -21,3 +21,19 @@ def redact(text, patient):
 
 def redact_segments(segments, patient):
     return [{**s, 'text': redact(s['text'], patient)} for s in segments]
+
+
+def redact_clinical_context(fields, patient):
+    """Маскирует и ручные правки до передачи их модели, включая ИИ-подсказки."""
+    from .clinical import DOCUMENT_FIELDS, AI_FIELDS
+
+    def mask(value):
+        if isinstance(value, str):
+            return redact(value, patient)
+        if isinstance(value, list):
+            return [mask(item) for item in value]
+        if isinstance(value, dict):
+            return {key: mask(item) for key, item in value.items()}
+        return value
+
+    return {key: mask(value) for key, value in fields.items() if key in DOCUMENT_FIELDS | AI_FIELDS}
