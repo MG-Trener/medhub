@@ -51,7 +51,7 @@ onMounted(async () => { try { await login(await api('/auth/me')) } catch {} fina
       <main>
         <div v-if="error" class="alert error" role="alert">{{ error }}<button class="icon-button" aria-label="Закрыть сообщение" @click="error = ''"><X :size="16"/></button></div>
         <Settings v-if="page === 'settings'" :settings="settings"/>
-        <Consultation v-else-if="encounter" :initial="encounter" :patient="patient" :settings="settings" @back="back" @updated="encounter = $event"/>
+        <Consultation v-else-if="encounter" :initial="encounter" :patient="patient" :settings="settings" :doctor="doctor" @back="back" @updated="encounter = $event"/>
         <template v-else-if="patient">
           <button class="text-button back" @click="back"><ArrowLeft :size="16"/>Все пациенты</button>
           <div class="page-heading"><div><span class="eyebrow">КАРТА ПАЦИЕНТА</span><h1>{{ patient.name }}</h1><p class="muted">ID {{ patient.id.slice(0, 8) }} · ИИН {{ patient.iin }}</p></div><button class="primary" :disabled="busy" @click="startEncounter"><Plus :size="18"/>Начать приём</button></div>

@@ -17,3 +17,7 @@
 ## 2026-09-30 13:23:18 +05:00 — Исправлены остановка записи, пауза и ожидание разрешения микрофона
 
 Изменены: `frontend/package.json`, `frontend/src/recorder.js`, `frontend/tests/recorder.test.js`, ``.
+
+## 2026-09-30 13:25:09 +05:00 — Обновлён лист консультации: загрузка аудио, источники полей, диагнозы и утверждение
+
+Изменены: `frontend/src/App.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/Consultation.vue`, `frontend/src/DiagnosisPicker.vue`, `frontend/src/Settings.vue`, `frontend/src/recorder.js`, `frontend/src/style.css`, ``.

@@ -13,7 +13,7 @@ export function useRecorder() {
   async function requestMicrophone(audio) {
     let expired = false, timeout
     const request = navigator.mediaDevices.getUserMedia({ audio }).then(value => {
-      if (expired) { value.getTracks().forEach(t => t.stop()); throw new Error('Запрос микрофона отменён') }
+      if (expired || disposed) { value.getTracks().forEach(t => t.stop()); throw new Error('Запрос микрофона отменён') }
       return value
     })
     try {
