@@ -80,6 +80,34 @@ class PatientIdentity(Base):
     patient_id: Mapped[str] = mapped_column(ForeignKey('patients.id'), index=True)
 
 
+class PatientConsent(Base):
+    __tablename__ = 'patient_consents'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey('patients.id'), index=True)
+    doctor_id: Mapped[str] = mapped_column(ForeignKey('doctors.id'), index=True)
+    state: Mapped[str] = mapped_column(String(20), default='draft')
+    document_version: Mapped[str] = mapped_column(String(30))
+    document_sha256: Mapped[str] = mapped_column(String(64))
+    document: Mapped[dict] = mapped_column(Encrypted)
+    verification: Mapped[dict] = mapped_column(Encrypted, default=dict)
+    created_at: Mapped[int] = mapped_column(default=now)
+    signed_at: Mapped[int | None] = mapped_column(Integer)
+    revoked_at: Mapped[int | None] = mapped_column(Integer)
+
+
+class PatientConsentAttempt(Base):
+    __tablename__ = 'patient_consent_attempts'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    consent_id: Mapped[str] = mapped_column(ForeignKey('patient_consents.id'), index=True)
+    doctor_id: Mapped[str] = mapped_column(ForeignKey('doctors.id'), index=True)
+    session_hash: Mapped[str] = mapped_column(String(64))
+    method: Mapped[str] = mapped_column(String(10))
+    state: Mapped[str] = mapped_column(String(20), default='pending')
+    data: Mapped[dict] = mapped_column(Encrypted, default=dict)
+    created_at: Mapped[int] = mapped_column(default=now)
+    expires_at: Mapped[int] = mapped_column(Integer)
+
+
 class Encounter(Base):
     __tablename__ = 'encounters'
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

@@ -65,3 +65,7 @@
 ## 2026-09-30 14:14:15 +05:00 — Зафиксирована публикация Smart Consult и исправлен список файлов changelog
 
 Изменены: `docs/acceptance-2026-09-30-smart-consult.md`, `scripts/commit.py`.
+
+## 2026-09-30 14:33:01 +05:00 — Добавлены зашифрованный архив согласий и бланк пациента
+
+Изменены: `backend/app/consent_document.py`, `backend/app/db.py`, `backend/migrations/versions/0003_patient_consent_signatures.py`.
