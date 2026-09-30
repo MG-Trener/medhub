@@ -101,3 +101,7 @@
 ## 2026-09-30 15:12:31 +05:00 — Добавлены нормализация реквизитов и повторный анализ с учётом правок врача
 
 Изменены: `backend/app/clinical.py`, `backend/app/main.py`, `backend/app/patient_input.py`, `backend/app/privacy.py`, `backend/app/providers.py`, `backend/app/schemas.py`, `backend/app/worker.py`, `backend/tests/test_clinical_merge.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_patient_input.py`, `backend/tests/test_regeneration.py`, `backend/tests/test_workflow.py`.
+
+## 2026-09-30 15:12:45 +05:00 — Добавлены маски реквизитов, дата из ИИН и кнопки перегенерации ответов
+
+Изменены: `README.md`, `docs/regeneration-and-patient-input.md`, `frontend/src/App.vue`, `frontend/src/Auth.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/Consultation.vue`, `frontend/src/MaskedInput.vue`, `frontend/src/patient-input.js`, `frontend/tests/patient-input.test.js`.

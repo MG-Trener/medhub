@@ -1,4 +1,5 @@
 <script setup>
+import MaskedInput from './MaskedInput.vue'
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { ArrowRight, Fingerprint, QrCode, ShieldCheck, Stethoscope, KeyRound } from 'lucide-vue-next'
 import { api } from './api'
@@ -55,7 +56,7 @@ async function poll() {
         <div v-if="error" class="alert error" role="alert">{{ error }}</div>
         <form @submit.prevent="submit" class="stack">
           <label v-if="register">ФИО врача<input v-model="form.name" required minlength="2" autocomplete="name" placeholder="Как к вам обращаться"></label>
-          <label v-if="register">ИИН врача<input v-model="form.iin" required inputmode="numeric" pattern="[0-9]{12}" minlength="12" maxlength="12" autocomplete="off" placeholder="12 цифр" aria-describedby="iin-help"></label>
+          <label v-if="register">ИИН врача<MaskedInput v-model="form.iin" required autocomplete="off" aria-describedby="iin-help"/></label>
           <p v-if="register" id="iin-help" class="hint">Для входа через ЭЦП или eGov Mobile ИИН в проверенной подписи должен совпадать с ИИН учётной записи.</p>
           <label>Электронная почта<input v-model="form.email" type="email" required autocomplete="username" placeholder="doctor@clinic.kz"></label>
           <label>Пароль<input v-model="form.password" type="password" required :minlength="register ? 12 : 1" :autocomplete="register ? 'new-password' : 'current-password'" placeholder="Введите пароль"></label>
