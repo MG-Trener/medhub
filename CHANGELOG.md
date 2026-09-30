@@ -41,3 +41,7 @@
 ## 2026-09-30 14:00:33 +05:00 — Добавлены общий поиск пациентов, этапы приёма и серверное окно записи 15 минут
 
 Изменены: `backend/app/db.py`, `backend/app/history.py`, `backend/app/lifecycle.py`, `backend/app/main.py`, `backend/app/schemas.py`, `backend/app/worker.py`, `backend/migrations/versions/0002_shared_patients_visit_lifecycle.py`, `backend/tests/audio_fixture.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_migration.py`, `backend/tests/test_openai_asr.py`, `backend/tests/test_visit_lifecycle.py`, `backend/tests/test_workflow.py`, ``.
+
+## 2026-09-30 14:01:35 +05:00 — Оформлен Smart Consult в палитре UMC, добавлены общий поиск и мои приёмы
+
+Изменены: `frontend/index.html`, `frontend/src/App.vue`, `frontend/src/Auth.vue`, `frontend/src/Settings.vue`, `frontend/src/UmcLogo.vue`, `frontend/src/assets/fonts/Inter-Variable.ttf`, `frontend/src/assets/fonts/OFL.txt`, `frontend/src/style.css`, ``.
