@@ -105,3 +105,7 @@
 ## 2026-09-30 15:12:45 +05:00 — Добавлены маски реквизитов, дата из ИИН и кнопки перегенерации ответов
 
 Изменены: `README.md`, `docs/regeneration-and-patient-input.md`, `frontend/src/App.vue`, `frontend/src/Auth.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/Consultation.vue`, `frontend/src/MaskedInput.vue`, `frontend/src/patient-input.js`, `frontend/tests/patient-input.test.js`.
+
+## 2026-09-30 15:36:43 +05:00 — Добавлена порционная обработка речи с архивом и восстановлением очереди
+
+Изменены: `backend/app/live.py`, `backend/app/main.py`, `backend/app/schemas.py`, `backend/app/worker.py`, `backend/tests/test_live.py`.

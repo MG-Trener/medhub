@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 import httpx
 from cryptography.fernet import Fernet
-from sqlalchemy import select
+from sqlalchemy import select, case
 from .config import settings
 from .db import SessionLocal, Job, Encounter, Patient, audit, now
 from .privacy import redact_segments, redact_clinical_context
@@ -20,12 +20,16 @@ log = logging.getLogger('medhub.worker')
 
 def process_one():
     with SessionLocal() as db:
-        job = db.scalar(select(Job).where(Job.state == 'queued').order_by(Job.created_at).with_for_update(skip_locked=True).limit(1))
+        job = db.scalar(select(Job).where(Job.state == 'queued').order_by(case((Job.kind == 'live_finalize', 1), else_=0), Job.created_at).with_for_update(skip_locked=True).limit(1))
         if not job:
             return False
         job.state, job.updated_at = 'running', now()
         db.commit()
         job_id, encounter_id, kind, payload = job.id, job.encounter_id, job.kind, job.payload
+    if kind in ('live_chunk', 'live_finalize'):
+        from .live import process
+        process(job_id)
+        return True
     audio_path = None
     masked_path = None
     generated = None
@@ -185,6 +189,8 @@ def process_one():
 
 
 def recover():
+    from .live import recover_and_expire
+    recover_and_expire(restart=True)
     # Единственный worker: прерванное внешнее действие не повторяется автоматически.
     with SessionLocal() as db:
         for job in db.scalars(select(Job).where(Job.state == 'running')):
@@ -198,7 +204,7 @@ def cleanup():
     # Записи приёмов и их маскированные копии сохраняются. Очищаем только сиротские файлы.
     cutoff = now() - 24 * 3600
     with SessionLocal() as db:
-        referenced = {Path(j.payload[key]).name for j in db.scalars(select(Job).where(Job.kind.in_(['transcribe', 'mute_audio', 'cloud_asr'])))
+        referenced = {Path(j.payload[key]).name for j in db.scalars(select(Job).where(Job.kind.in_(['transcribe', 'mute_audio', 'cloud_asr', 'live_chunk'])))
                       for key in ('audio', 'masked_audio') if j.payload.get(key)}
     for path in Path(settings().audio_dir).glob('*.enc'):
         if path.name not in referenced and path.stat().st_mtime < cutoff:
@@ -210,6 +216,8 @@ if __name__ == '__main__':
     recover()
     while True:
         try:
+            from .live import recover_and_expire
+            recover_and_expire()
             cleanup()
             if not process_one():
                 time.sleep(2)

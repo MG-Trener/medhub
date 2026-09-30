@@ -21,6 +21,7 @@ from .privacy import redact_segments
 from .patient_input import normalize_iin
 from .clinical import ai_notice, export_without_ai
 from .openai_asr import OPENAI_ASR_MODEL
+from .live import router as live_router, require_idle, active_session
 from .identity import router as identity_router
 from .consent import router as consent_router, consent_summary, revoke_patient_consents, signature_allows_processing
 from .diagnoses import catalog, search_diagnoses, by_code
@@ -30,6 +31,7 @@ from .lifecycle import shared_patient, meaningful, empty_encounter, draft_token 
 app = FastAPI(title='Smart Consult API', version='0.2.0', docs_url='/api/docs', openapi_url='/api/openapi.json')
 app.include_router(identity_router)
 app.include_router(consent_router)
+app.include_router(live_router)
 rate_buckets = defaultdict(deque)
 rate_lock = threading.Lock()
 
@@ -97,6 +99,11 @@ def encounter_view(e, db=None, doctor=None):
     if not result['persisted']:
         result['draft_token'] = sign_draft(e)
     if db:
+        live = active_session(db, e.id) if not result['read_only'] else None
+        if not live and not result['read_only']:
+            latest = db.scalar(select(Job).where(Job.encounter_id == e.id, Job.kind == 'live_session').order_by(Job.created_at.desc()).limit(1))
+            live = latest if latest and latest.state == 'failed' else None
+        result['live_session'] = {'id': live.id, 'state': live.state, 'count': len(live.payload['parts'])} if live else None
         physician = db.get(Doctor, e.doctor_id)
         patient = db.get(Patient, e.patient_id)
         result['physician_name'] = result['doctor_name'] = physician.profile.get('name', '') if physician else ''
@@ -115,6 +122,8 @@ def diagnoses(q: str = Query('', max_length=150), limit: int = Query(20, ge=1, l
 
 
 def verify_version(e, version):
+    if inspect(e).session:
+        require_idle(inspect(e).session, e.id)
     if e.version != version:
         raise HTTPException(409, 'Приём изменён. Обновите страницу перед сохранением')
     if e.status == 'processing':
@@ -122,6 +131,7 @@ def verify_version(e, version):
 
 
 def queue(db, e, kind, payload=None):
+    require_idle(db, e.id)
     if e.status == 'processing':
         raise HTTPException(409, 'Обработка уже запущена')
     job = Job(encounter_id=e.id, kind=kind, payload={'version': e.version, 'previous_status': e.status, **(payload or {})})
@@ -376,6 +386,7 @@ async def upload_audio(encounter_id: str, file: UploadFile = File(...), analyze:
         if db.get(Encounter, encounter_id):
             raise HTTPException(409, 'Приём уже сохранён. Обновите страницу')
     capture_allowed(e, capture_token)
+    require_idle(db, e.id)
     p = db.get(Patient, e.patient_id)
     require_patient_signature(db, p)
     if not e.recording_consent or not p.recording_consent:
@@ -448,6 +459,7 @@ def close_encounter(e):
 @app.post('/api/v1/encounters/{encounter_id}/capture-lease', tags=['Приёмы'])
 def capture_lease(encounter_id: str, body: LifecycleAction, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = lifecycle_encounter(db, encounter_id, doctor, body)
+    require_idle(db, e.id)
     require_patient_signature(db, db.get(Patient, e.patient_id))
     capture_allowed(e)
     if now() >= e.recording_deadline:
@@ -461,6 +473,9 @@ def capture_lease(encounter_id: str, body: LifecycleAction, doctor=Depends(curre
 @app.post('/api/v1/encounters/{encounter_id}/pause', tags=['Приёмы'])
 def pause_encounter(encounter_id: str, body: LifecycleAction, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = lifecycle_encounter(db, encounter_id, doctor, body)
+    live = active_session(db, e.id)
+    if live and live.state == 'recording':
+        raise HTTPException(409, 'Сначала остановите потоковую запись')
     if e.ended_at:
         raise HTTPException(409, 'Приём завершён')
     if not e.paused_at:
@@ -491,6 +506,9 @@ def resume_encounter(encounter_id: str, body: LifecycleAction, doctor=Depends(cu
 @app.post('/api/v1/encounters/{encounter_id}/finish', tags=['Приёмы'])
 def finish_encounter(encounter_id: str, body: LifecycleAction, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = lifecycle_encounter(db, encounter_id, doctor, body, check_version=False)
+    live = active_session(db, e.id)
+    if live and live.state == 'recording':
+        raise HTTPException(409, 'Сначала остановите запись и отправьте оставшиеся фрагменты')
     close_encounter(e)
     discarded = not inspect(e).persistent
     if discarded:
@@ -551,6 +569,7 @@ def recordings(encounter_id: str, doctor=Depends(current_doctor), db=Depends(db_
         completed = next((j for j in sorted(attempts, key=lambda j: (j.payload.get('attempt', 0), j.created_at), reverse=True)
                           if j.payload.get('result_transcript')), original)
         result.append({'id': original.id, 'created_at': original.created_at, 'state': latest.state, 'error': latest.error,
+             'timeline_offset': original.payload.get('timeline_offset', 0), 'duration': original.payload.get('duration'),
              'bytes': original.payload.get('bytes'), 'attempts': len(attempts),
              'available': bool(original.payload.get('audio') and (Path(settings().audio_dir) / Path(original.payload['audio']).name).is_file()),
              'transcript': completed.payload.get('result_transcript', []), 'speaker_roles': completed.payload.get('result_roles', {})})

@@ -84,7 +84,7 @@ class Consent(Strict):
 
 
 class Segment(Strict):
-    speaker: str = Field(pattern=r'^SPEAKER_\d{2}$')
+    speaker: str = Field(pattern=r'^SPEAKER_\d{2,4}$')
     start: float = Field(ge=0)
     end: float = Field(ge=0)
     text: str = Field(max_length=10000)
@@ -145,7 +145,7 @@ class Consultation(Strict):
 class EncounterPatch(Strict):
     version: int = Field(ge=1)
     fields: Consultation
-    speaker_roles: dict[str, Literal['doctor', 'patient', 'nurse', 'unknown']] = Field(default_factory=dict, max_length=10)
+    speaker_roles: dict[str, Literal['doctor', 'patient', 'nurse', 'unknown']] = Field(default_factory=dict, max_length=1000)
     transcript: list[Segment] | None = Field(default=None, max_length=2000)
     previous_encounter_id: str | None = Field(default=None, max_length=36)
 
@@ -158,7 +158,7 @@ class EncounterStart(Strict):
 class EncounterCreate(Strict):
     draft_token: str = Field(min_length=20, max_length=5000)
     fields: Consultation
-    speaker_roles: dict[str, Literal['doctor', 'patient', 'nurse', 'unknown']] = Field(default_factory=dict, max_length=10)
+    speaker_roles: dict[str, Literal['doctor', 'patient', 'nurse', 'unknown']] = Field(default_factory=dict, max_length=1000)
     transcript: list[Segment] = Field(default_factory=list, max_length=2000)
     previous_encounter_id: str | None = Field(default=None, max_length=36)
 
