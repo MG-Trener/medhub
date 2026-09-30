@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ArrowLeft, Mic, Square, Upload, Sparkles, Save, Check, Send, ShieldCheck, RefreshCw, Plus, Trash2, Headphones, Pause, Play, Clock3, FileText, X } from 'lucide-vue-next'
 import { api } from './api'
 import { useRecorder } from './recorder'
+import { liveUploader } from './live-upload'
 import { hasConsent, canCapture, visitSeconds, recordingSecondsLeft, formatDuration, bodyMassIndex } from './visit'
 import DiagnosisPicker from './DiagnosisPicker.vue'
 import ClinicalField from './ClinicalField.vue'
@@ -12,6 +13,8 @@ const props = defineProps(['initial', 'patient', 'settings', 'doctor'])
 const emit = defineEmits(['back', 'updated', 'open-previous'])
 const e = ref(JSON.parse(JSON.stringify(props.initial))), error = ref(''), notice = ref(''), busy = ref(false), dirty = ref(false), tab = ref('transcript')
 const rec = useRecorder()
+const live = ref(props.initial.live_session || null), liveProgress = ref(null), liveError = ref(''), livePending = ref(0)
+let delivery, liveTimer, retryTimer, liveFinishing = false, connectionAlarm = false, liveFinalizing = false
 const { devices, selected, recording, paused, recorderError, seconds, audioUrl, audioBlob, level } = rec
 const records = ref([]), revisions = ref([]), previous = ref([]), selectedRecord = ref(''), player = ref(null), sourceIndex = ref(-1), stage = ref(''), approvalChecked = ref(false)
 const privacyDirty = ref(false), audioReviewed = ref(false), showMaskedAudio = ref(false), leaveDestination = ref(''), leaveDialog = ref(null)
@@ -21,7 +24,7 @@ const persisted = computed(() => e.value.persisted !== false)
 const readOnly = computed(() => !!e.value.read_only || e.value.can_edit === false)
 const processing = computed(() => e.value.status === 'processing')
 const reviewed = computed(() => ['approved', 'exported'].includes(e.value.status) && !dirty.value)
-const locked = computed(() => busy.value || processing.value || recording.value || readOnly.value)
+const locked = computed(() => busy.value || processing.value || recording.value || !!live.value || readOnly.value)
 const canGenerate = computed(() => props.settings.llm_configured && (e.value.transcript.length || Object.keys({ ...fields, ...vitals }).some(key => !key.startsWith('ai_') && e.value.fields[key]?.trim())))
 const recordAllowed = computed(() => canCapture(e.value, props.patient, now.value))
 const canTranscribe = computed(() => props.settings.asr_configured && hasConsent(props.patient))
@@ -77,6 +80,11 @@ async function poll() {
     const result = await api(`/encounters/${e.value.id}`)
     if (destroyed) return
     if (result.last_job?.error) error.value = result.last_job.error
+    if (result.live_session?.state === 'failed') live.value = result.live_session
+    if (liveFinalizing && result.status !== 'processing') {
+      if (!result.last_job?.error && !recorderError.value && !result.live_session) rec.clearAudio()
+      liveFinalizing = false
+    }
     // Не перетираем локальные изменения поздним ответом предыдущего запроса.
     if (serial === updateSerial && !dirty.value && !privacyDirty.value) update(result)
     if (result.status === 'processing') pollTimer = setTimeout(poll, 2000)
@@ -100,15 +108,73 @@ async function upload(blob) {
   rec.clearAudio(); captureToken = ''
   notice.value = 'Запись сохранена на сервере. Распознавание и анализ запущены.'
 }
+async function pollLive() {
+  clearTimeout(liveTimer); liveTimer = null
+  if (!live.value) return
+  const id = live.value.id
+  try {
+    const result = await api(`/encounters/${e.value.id}/live/${id}`)
+    if (live.value?.id !== id || liveFinishing || destroyed) return
+    liveProgress.value = result
+    if (!dirty.value) { update(result.encounter); e.value.transcript = result.transcript }
+    if (result.error) liveError.value = result.error
+    if (['done', 'failed'].includes(result.state)) {
+      if (result.state === 'done') { live.value = null; liveProgress.value = null; await refreshArchive(); return }
+    }
+  } catch (err) { if (delivery?.acknowledged) liveError.value = err.message }
+  if (!destroyed && live.value) liveTimer = setTimeout(pollLive, 2000)
+}
+async function completeLive(interrupted = false) {
+  if (liveFinishing || !live.value) return
+  liveFinishing = true
+  try {
+    await delivery?.drain()
+    livePending.value = delivery?.pending || 0
+    const count = delivery?.acknowledged || liveProgress.value?.received || live.value.count || 0
+    if (!count) throw new Error('Нет сохранённых фрагментов. Скачайте резервную запись.')
+    await queue(`live/${live.value.id}/finish`, { count, interrupted })
+    liveFinalizing = true
+    clearTimeout(liveTimer); liveTimer = null; clearInterval(retryTimer)
+    live.value = null; liveProgress.value = null; liveError.value = ''
+    captureToken = ''
+    notice.value = 'Фрагменты сохранены. Обрабатываем остаток и выполняем итоговый анализ.'
+  } finally { liveFinishing = false }
+}
 async function startRecording() {
+  await rec.primeSounds()
   if (!recordAllowed.value) throw new Error('Новая запись недоступна. Проверьте согласие и время приёма.')
   if (audioBlob.value) throw new Error('Сначала отправьте выбранную запись или удалите её')
+  if (dirty.value) await save()
   const lease = await api(`/encounters/${e.value.id}/capture-lease`, { method: 'POST', body: lifecycleBody() })
   captureToken = lease.capture_token
-  await rec.start()
-  if (Date.now() / 1000 + serverOffset.value >= e.value.recording_deadline) { await rec.stop(); rec.clearAudio(); throw new Error('Время для записи истекло во время запроса микрофона') }
+  const sessionId = crypto.randomUUID()
+  live.value = { id: sessionId, count: 0 }; liveProgress.value = null; liveError.value = ''; connectionAlarm = false
+  delivery = liveUploader(async (blob, sequence) => {
+    const form = new FormData(); form.append('file', blob, 'fragment.wav'); form.append('sequence', String(sequence))
+    if (e.value.draft_token) form.append('draft_token', e.value.draft_token)
+    form.append('capture_token', captureToken)
+    const result = await api(`/encounters/${e.value.id}/live/${sessionId}/parts`, { method: 'POST', body: form, signal: AbortSignal.timeout(30000) })
+    e.value.persisted = true; connectionAlarm = false; liveError.value = ''
+    if (!liveTimer) liveTimer = setTimeout(pollLive, 300)
+    return result
+  }, message => {
+    liveError.value = message + ' Фрагменты остаются в браузере; отправка будет повторена.'
+    if (!connectionAlarm) { rec.alarm(); connectionAlarm = true }
+  })
+  try {
+    await rec.start({ onChunk: blob => { delivery.add(blob); livePending.value = delivery.pending },
+      onInterrupted: () => { void run(() => completeLive(true)) } })
+  } catch (err) { live.value = null; throw err }
+  transcriptOpen.value = true
+  retryTimer = setInterval(() => { if (delivery?.pending) void delivery.retry(); livePending.value = delivery?.pending || 0 }, 5000)
+  if (Date.now() / 1000 + serverOffset.value >= e.value.recording_deadline) {
+    await rec.stop()
+    if (delivery.pending || delivery.acknowledged) await completeLive(true)
+    else { live.value = null; clearInterval(retryTimer); clearTimeout(liveTimer); liveTimer = null }
+    throw new Error('Время для записи истекло во время запроса микрофона. Резервную запись можно скачать.')
+  }
 }
-async function finishDialogue() { await upload(await rec.stop()) }
+async function finishDialogue() { const blob = await rec.stop(); if (live.value) await completeLive(!!recorderError.value); else await upload(blob) }
 function chooseFile(event) {
   const file = event.target.files?.[0]; event.target.value = ''; if (!file || !recordAllowed.value) return
   if (file.size > 80 * 1024 * 1024) { error.value = 'Максимальный размер файла — 80 МБ'; return }
@@ -120,6 +186,7 @@ function chooseFile(event) {
 async function preserveChanges() {
   if (privacyDirty.value) await privacy()
   if (recording.value) await finishDialogue()
+  else if (live.value) await completeLive(!!recorderError.value)
   else if (audioBlob.value) await upload(audioBlob.value)
   if (dirty.value) await save()
 }
@@ -156,9 +223,12 @@ function selectDiagnosis(item) { changed('diagnosis'); e.value.fields.diagnosis_
 async function showSource(index) {
   transcriptOpen.value = true
   tab.value = 'transcript'; sourceIndex.value = index
-  if (records.value[0]?.available) selectedRecord.value = records.value[0].id
+  const time = e.value.transcript[index]?.start
+  const record = records.value.find(record => record.available && time >= (record.timeline_offset || 0) &&
+    (!record.duration || time < (record.timeline_offset || 0) + record.duration))
+  if (record) selectedRecord.value = record.id
   await nextTick(); document.getElementById('segment-' + index)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  if (player.value && Number.isFinite(e.value.transcript[index]?.start)) player.value.currentTime = e.value.transcript[index].start
+  if (player.value && record && Number.isFinite(time)) player.value.currentTime = Math.max(0, time - (record.timeline_offset || 0))
 }
 function transcriptChanged() { dirty.value = true; transcriptDirty.value = true; approvalChecked.value = false; e.value.fields.reviewed_fields = [] }
 function addSegment() { e.value.transcript.push({ speaker: 'SPEAKER_00', start: 0, end: 0, text: '' }); e.value.speaker_roles.SPEAKER_00 ||= 'unknown'; transcriptChanged() }
@@ -196,9 +266,10 @@ onMounted(async () => {
     }
   }, 500)
   window.addEventListener('beforeunload', unload)
+  if (live.value) liveTimer = setTimeout(pollLive, 100)
   try { await refreshArchive(); previous.value = (await api(`/patients/${props.patient.id}/encounters`)).filter(x => x.id !== e.value.id); if (processing.value) poll() } catch (err) { error.value = err.message }
 })
-onBeforeUnmount(() => { destroyed = true; clearTimeout(pollTimer); clearInterval(clockTimer); window.removeEventListener('beforeunload', unload) })
+onBeforeUnmount(() => { destroyed = true; clearTimeout(liveTimer); clearInterval(retryTimer); clearTimeout(pollTimer); clearInterval(clockTimer); window.removeEventListener('beforeunload', unload) })
 </script>
 
 <template>
@@ -217,16 +288,19 @@ onBeforeUnmount(() => { destroyed = true; clearTimeout(pollTimer); clearInterval
         <div v-if="recordAllowed || recording" class="conversation-recording">
           <div class="recording-meter"><span class="record-clock">{{ formatDuration(seconds) }}</span><span v-if="recording" class="recording-status">{{ paused ? 'Пауза записи' : 'Идёт запись' }}</span><div class="record-wave" aria-hidden="true"><i v-for="n in 24" :key="n" :style="{ height: (recording && !paused ? 5 + level * (15 + n % 5 * 13) : 4 + n % 4 * 3) + 'px' }"></i></div></div>
           <div class="record-buttons"><template v-if="recording"><button class="secondary" :disabled="busy" @click="rec.pause"><component :is="paused ? Play : Pause" :size="16"/>{{ paused ? 'Продолжить запись' : 'Пауза' }}</button><button class="primary" :disabled="busy" @click="run(finishDialogue)"><Square :size="16"/>Закончить диалог приёма</button></template><button v-else class="primary full" :disabled="locked || !!audioBlob" @click="run(startRecording)"><Mic :size="17"/>Начать запись</button></div>
+          <p class="hint">Звуки: два восходящих тона — начало, нисходящих — окончание; повторяющийся сигнал — обрыв. Проверьте громкость устройства.</p>
           <details class="microphone-settings"><summary>Источник микрофона</summary><label>Устройство<select v-model="selected" :disabled="recording || busy" @change="rec.saveDevice"><option value="">Системный микрофон</option><option v-for="d in devices" :key="d.deviceId" :value="d.deviceId">{{ d.label || 'Микрофон' }}</option></select></label><button class="text-button" :disabled="recording || busy" @click="run(rec.discover)"><Headphones :size="15"/>Разрешить микрофон и обновить список</button><p class="hint">Выбор устройства сохраняется в этом браузере.</p></details>
           <label class="audio-file-label"><Upload :size="18"/>Загрузить запись приёма<input type="file" accept=".wav,.mp3,.m4a,.mp4,.webm,.ogg,.flac" :disabled="locked || !!audioBlob" aria-label="Загрузить запись приёма" @change="chooseFile"></label><p class="hint">До 80 МБ. Запись доступна 15 минут с начала приёма.</p>
         </div>
         <p v-else class="capture-closed">{{ e.ended_at ? 'Приём завершён. Новая запись недоступна. Сохранённые записи можно прослушать ниже.' : e.paused_at ? 'Возобновите приём, чтобы продолжить работу с записью.' : !hasConsent(patient) ? 'Нет согласия на обработку с ИИ. Заполните лист вручную или приостановите приём и измените согласие в карте.' : '15 минут для новой записи истекли. Продолжайте заполнять лист вручную.' }}</p>
-        <div v-if="audioUrl" class="uploaded-audio"><audio :src="audioUrl" controls/><button class="primary full" :disabled="locked || !canTranscribe || !!e.ended_at" @click="run(() => upload(audioBlob))">Распознать и заполнить</button><a class="text-button" :href="audioUrl" download="consultation-audio">Скачать выбранную запись</a><button class="text-button" :disabled="locked" @click="rec.clearAudio(); captureToken = ''">Удалить выбранную запись</button></div>
+        <div v-if="audioUrl && !recording" class="uploaded-audio"><audio :src="audioUrl" controls/><button class="primary full" :disabled="busy || processing || !canTranscribe || !!e.ended_at" @click="run(() => live ? completeLive(!!recorderError) : upload(audioBlob))">Распознать и заполнить</button><a class="text-button" :href="audioUrl" download="consultation-audio">Скачать выбранную запись</a><button class="text-button" :disabled="locked" @click="rec.clearAudio(); captureToken = ''">Удалить выбранную запись</button></div>
+        <div v-if="live || liveProgress" class="live-progress" role="status"><strong>Предварительная расшифровка по мере разговора</strong><p>Сохранено {{ liveProgress?.received || delivery?.acknowledged || 0 }} фрагментов · распознано {{ liveProgress?.completed || 0 }} · ожидают отправки {{ livePending }}</p><p class="hint">Фрагменты 20–30 секунд, черновик обновляется примерно раз в минуту. Номера голосов независимы между фрагментами; роли определяет ИИ, их проверяет врач.</p><a v-if="live && (liveProgress?.received || delivery?.acknowledged || live.count)" class="text-button" :href="`/api/v1/encounters/${e.id}/live/${live.id}/audio`" download>Скачать сохранённые на сервере фрагменты</a><button v-if="!recording" class="secondary" :disabled="busy || processing" @click="run(() => completeLive(true))">Завершить обработку сохранённых фрагментов</button></div>
+        <div v-if="liveError" class="alert error" role="alert">{{ liveError }}</div>
         <details class="transcript-disclosure" :open="transcriptOpen" @toggle="transcriptOpen = $event.target.open"><summary>Расшифровка диалога <span class="hint">{{ e.transcript.length }} реплик · маскирование и архив</span></summary>
         <div class="tabs compact-tabs"><button :class="{ active: tab === 'transcript' }" @click="tab = 'transcript'">Расшифровка</button><button :class="{ active: tab === 'privacy' }" @click="tab = 'privacy'">Маскирование</button><button :class="{ active: tab === 'archive' }" @click="tab = 'archive'">Архив</button></div>
         <div v-if="audioSource" class="archive-player"><label>Сохранённая запись<select v-model="selectedRecord"><option v-for="r in records.filter(x => x.available)" :key="r.id" :value="r.id">{{ date(r.created_at) }}</option></select></label><audio ref="player" :src="audioSource" controls preload="metadata"/></div>
-        <template v-if="tab === 'transcript'"><div v-if="speakers.length" class="speaker-roles"><label v-for="s in speakers" :key="s"><span>Говорящий {{ Number(s.slice(-2)) + 1 }}</span><select v-model="e.speaker_roles[s]" :disabled="locked || privacyDirty" @change="transcriptChanged"><option v-for="(label, role) in roles" :key="role" :value="role">{{ label }}</option></select></label></div><div v-if="!e.transcript.length" class="empty"><Mic :size="30"/><p>После распознавания здесь появятся реплики и роли участников.</p></div>
-          <div class="segments"><article v-for="(s, i) in e.transcript" :id="'segment-' + i" :key="i" class="segment" :class="{ 'source-highlight': sourceIndex === i }"><div class="segment-meta"><span class="speaker-dot" :class="e.speaker_roles[s.speaker]"></span><select v-model="s.speaker" aria-label="Говорящий" :disabled="locked || privacyDirty" @change="transcriptChanged"><option v-for="sp in speakerOptions" :key="sp" :value="sp">{{ roles[e.speaker_roles[sp]] || 'Говорящий' }} · {{ Number(sp.slice(-2)) + 1 }}</option></select><button class="text-button" @click="showSource(i)">{{ formatDuration(s.start) }}</button><button class="icon-button" aria-label="Удалить реплику" :disabled="locked || privacyDirty" @click="e.transcript.splice(i, 1); e.fields.sources = []; transcriptChanged()"><Trash2 :size="13"/></button></div><textarea v-model="s.text" aria-label="Текст реплики" :disabled="locked || privacyDirty" rows="3" @input="transcriptChanged"></textarea></article></div><button class="text-button add-segment" :disabled="locked || privacyDirty" @click="addSegment"><Plus :size="15"/>Добавить реплику вручную</button></template>
+        <template v-if="tab === 'transcript'"><div v-if="speakers.length" class="speaker-roles"><label v-for="s in speakers" :key="s"><span>Говорящий {{ Number(s.split('_')[1]) + 1 }}</span><select v-model="e.speaker_roles[s]" :disabled="locked || privacyDirty" @change="transcriptChanged"><option v-for="(label, role) in roles" :key="role" :value="role">{{ label }}</option></select></label></div><div v-if="!e.transcript.length" class="empty"><Mic :size="30"/><p>После распознавания здесь появятся реплики и роли участников.</p></div>
+          <div class="segments"><article v-for="(s, i) in e.transcript" :id="'segment-' + i" :key="i" class="segment" :class="{ 'source-highlight': sourceIndex === i }"><div class="segment-meta"><span class="speaker-dot" :class="e.speaker_roles[s.speaker]"></span><select v-model="s.speaker" aria-label="Говорящий" :disabled="locked || privacyDirty" @change="transcriptChanged"><option v-for="sp in speakerOptions" :key="sp" :value="sp">{{ roles[e.speaker_roles[sp]] || 'Говорящий' }} · {{ Number(sp.split('_')[1]) + 1 }}</option></select><button class="text-button" @click="showSource(i)">{{ formatDuration(s.start) }}</button><button class="icon-button" aria-label="Удалить реплику" :disabled="locked || privacyDirty" @click="e.transcript.splice(i, 1); e.fields.sources = []; transcriptChanged()"><Trash2 :size="13"/></button></div><textarea v-model="s.text" aria-label="Текст реплики" :disabled="locked || privacyDirty" rows="3" @input="transcriptChanged"></textarea></article></div><button class="text-button add-segment" :disabled="locked || privacyDirty" @click="addSegment"><Plus :size="15"/>Добавить реплику вручную</button></template>
         <template v-else-if="tab === 'privacy'"><p class="privacy-note">Проверьте имена, ИИН, телефоны и адреса. Автоматическое маскирование может пропустить сведения.</p><p v-if="dirty" class="hint">Сначала сохраните изменения листа.</p><div v-for="(s, i) in e.redacted_transcript" :key="i" class="segment"><textarea v-model="s.text" aria-label="Обезличенная реплика" :disabled="locked || dirty" rows="3" @input="privacyDirty = true"></textarea><button v-if="hasConsent(patient)" class="text-button" :disabled="locked || dirty || privacyDirty" @click="run(() => queue('mute-audio', { version: e.version, segment_indices: [i] }))">Заглушить реплику в копии аудио</button></div><button class="secondary full" :disabled="locked || dirty || !e.redacted_transcript.length" @click="run(privacy)">Подтвердить маскирование</button><div v-if="records.length" class="masked-audio-box"><button class="text-button" @click="showMaskedAudio = !showMaskedAudio">Прослушать маскированную копию</button><audio v-if="showMaskedAudio" :key="e.version" :src="'/api/v1/encounters/' + e.id + '/masked-audio'" controls/><template v-if="settings.cloud_asr_configured"><label class="check"><input v-model="audioReviewed" type="checkbox">Проверено отсутствие персональных данных в аудио</label><button class="secondary" :disabled="locked || !audioReviewed || !e.privacy_reviewed || !hasConsent(patient)" @click="run(() => queue('cloud-asr', { version: e.version, audio_reviewed: true }))">Уточнить распознавание</button></template></div></template>
         <template v-else><div class="archive-list"><p class="hint">Исходные записи, расшифровки и версии заключений сохраняются зашифрованно.</p><details v-for="r in records" :key="r.id"><summary>Аудио · {{ date(r.created_at) }} · {{ r.available ? 'Сохранено' : 'Недоступно' }}</summary><button class="secondary" :disabled="locked || !r.available || !canTranscribe" @click="run(() => retryRecording(r))">Повторно распознать сохранённую запись</button><p v-if="r.error" class="alert error">{{ r.error }}</p><p v-for="(s, i) in r.transcript" :key="i"><b>{{ roles[r.speaker_roles[s.speaker]] || s.speaker }}:</b> {{ s.text }}</p></details><details v-for="revision in revisions" :key="revision.id"><summary>Версия {{ revision.version }} · {{ date(revision.created_at) }} · {{ { approve: 'Проверка врачом', edit: 'Правка', generate: 'Заключение ИИ', transcribe: 'Распознавание', finish: 'Завершение приёма', before_edit: 'До правки', before_generate: 'До генерации', before_transcribe: 'До распознавания' }[revision.action] || revision.action }}</summary><template v-for="(label, key) in fields" :key="key"><p v-if="revision.snapshot.fields[key]"><b>{{ label }}:</b> {{ revision.snapshot.fields[key] }}</p></template></details></div></template>
         <div class="transcript-footer"><button class="secondary full" :disabled="locked || !canGenerate" @click="run(() => generate())"><Sparkles :size="17"/>Повторить анализ и заполнение</button></div>

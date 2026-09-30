@@ -113,3 +113,7 @@
 ## 2026-09-30 15:36:54 +05:00 — Добавлены непрерывные аудиофрагменты и звуковые сигналы записи
 
 Изменены: `frontend/src/audio-chunks.js`, `frontend/src/live-upload.js`, `frontend/src/pcm-worklet.js`, `frontend/src/recorder.js`, `frontend/src/recording-sounds.js`, `frontend/tests/live.test.js`, `frontend/tests/recorder.test.js`.
+
+## 2026-09-30 15:36:59 +05:00 — Подключена расшифровка во время приёма и итоговая сборка диалога
+
+Изменены: `README.md`, `docs/live-recording.md`, `frontend/src/Consultation.vue`.
