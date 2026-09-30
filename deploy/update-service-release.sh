@@ -25,8 +25,9 @@ rollback() {
     ln -sfn "$previous" /opt/medhub/current
     systemctl restart medhub-api medhub-worker
 }
-systemctl stop medhub-worker
+systemctl stop medhub-api medhub-worker
 trap rollback EXIT
+"$release/.venv/bin/python" "$release/deploy/backup-database.py"
 runuser -u medhub -- "$release/.venv/bin/alembic" upgrade head
 ln -sfn "$release" /opt/medhub/current
 systemctl restart medhub-api medhub-worker

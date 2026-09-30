@@ -53,3 +53,7 @@
 ## 2026-09-30 14:06:50 +05:00 — Стабилизирован документ МИС для безопасной повторной отправки
 
 Изменены: `backend/app/main.py`, `backend/tests/test_mis_client.py`, `backend/tests/test_visit_lifecycle.py`, `backend/tests/test_workflow.py`, `examples/mis_client.py`, ``.
+
+## 2026-09-30 14:06:59 +05:00 — Добавлена резервная копия medhub перед серверными миграциями
+
+Изменены: `deploy/backup-database.py`, `deploy/update-service-release.sh`, ``.
