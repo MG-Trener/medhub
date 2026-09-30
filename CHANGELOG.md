@@ -156,3 +156,7 @@
 ## 2026-09-30 16:46:06 +05:00 — Исправлены подключение NCALayer и отображение проверки ЭЦП
 
 Изменены: `frontend/src/IdentitySigning.vue`, `frontend/src/eds.js`, `frontend/tests/eds.test.js`.
+
+## 2026-09-30 16:50:54 +05:00 — Разделены способы подписания для ПК и мобильных устройств
+
+Изменены: `frontend/src/ConsentSigning.vue`, `frontend/src/IdentitySigning.vue`, `frontend/src/SigningMethods.vue`, `frontend/src/signingDevice.js`.

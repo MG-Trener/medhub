@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { api } from './api'
 import { signXml } from './eds'
 import SigningMethods from './SigningMethods.vue'
+import { mobileSigning } from './signingDevice'
 const props = defineProps({ enabled: Boolean, purpose: { default: 'login' }, iin: { default: '' }, code: { default: '' } })
 const emit = defineEmits(['complete'])
 const busy = ref(false), attempt = ref(null), error = ref('')
@@ -67,10 +68,10 @@ onBeforeUnmount(() => { stopped = true; clearTimeout(timer); controller?.abort()
   <p v-if="busy" role="status">Подписание XML и проверка сертификата…</p>
   <div v-if="error" class="alert error" role="alert">{{ error }}</div>
   <div v-if="attempt" class="qr-box">
-    <img v-if="attempt.qr_image" :src="attempt.qr_image" alt="QR для подписания XML в eGov Mobile">
+    <img v-if="!mobileSigning && attempt.qr_image && attempt.state !== 'verifying'" :src="attempt.qr_image" alt="QR для подписания XML в eGov Mobile">
     <p v-if="attempt.state === 'verifying'" role="status">Подпись получена. Проверяем сертификат и документ в SIGEX…</p>
-    <p v-else>Подпишите XML подтверждения входа. На компьютере отсканируйте QR телефоном.</p>
-    <a v-if="attempt.launch_url && attempt.state !== 'verifying'" class="secondary" :href="attempt.launch_url">Открыть eGov Mobile на этом телефоне</a>
+    <p v-else>{{ mobileSigning ? 'Откройте eGov Mobile по ссылке и подпишите XML подтверждения входа.' : 'Подпишите XML подтверждения входа. Отсканируйте QR телефоном.' }}</p>
+    <a v-if="mobileSigning && attempt.launch_url && attempt.state !== 'verifying'" class="secondary" :href="attempt.launch_url">Открыть eGov Mobile на этом телефоне</a>
     <button class="text-button" @click="poll">Я подписал — проверить статус</button>
   </div>
 </template>
