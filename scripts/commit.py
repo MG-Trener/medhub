@@ -16,7 +16,7 @@ def run(*args):
 message = ' '.join(sys.argv[1:]).strip()
 if not message or not re.search('[А-Яа-я]', message):
     raise SystemExit('Укажите описание коммита на русском')
-names = run('diff', '--cached', '--name-only', '-z').split('\0')
+names = [name for name in run('diff', '--cached', '--name-only', '-z').split('\0') if name]
 if not any(names):
     raise SystemExit('Сначала добавьте изменения в индекс')
 for name in names:
