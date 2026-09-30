@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     registration_code: str = ''
     audio_dir: str = './data/audio'
     max_audio_mb: int = 80
-    audio_retention_hours: int = 24
+    audio_retention_hours: int = 0  # 0 — постоянное хранение записей приёмов
     asr_provider: str = 'disabled'  # faster_whisper, self_hosted, openai
     openai_api_key: str = ''
     asr_url: str = ''
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     cloud_asr_api_key: str = ''
     cloud_asr_model: str = 'whisper-1'
     diarization_model: str = ''  # локальный каталог Community-1
-    llm_provider: str = 'disabled'  # ollama, openai_compatible
+    llm_provider: str = 'disabled'  # openai, ollama, openai_compatible
     llm_url: str = 'http://host.docker.internal:11434'
     llm_api_key: str = ''
     llm_model: str = 'qwen3:8b'

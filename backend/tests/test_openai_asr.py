@@ -73,7 +73,7 @@ def test_openai_worker_consent_and_redaction(client, doctor, monkeypatch, revoke
         assert saved['speaker_roles'] == {'SPEAKER_00': 'unknown'}
     else:
         assert saved['transcript'] == []
-    assert not [p for p in Path(settings().audio_dir).glob('*.enc') if not p.name.endswith('.masked.enc')]
+    assert client.get(f'/api/v1/encounters/{e["id"]}/recordings').json()[0]['available'] is True
 
 
 def test_queued_local_job_never_switches_to_cloud(client, doctor, monkeypatch):

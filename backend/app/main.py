@@ -7,7 +7,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 from cryptography.fernet import Fernet
 from argon2.exceptions import VerifyMismatchError, VerificationError
-from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File, Query
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File, Query, Form
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import select, delete, text
@@ -20,6 +20,8 @@ from .privacy import redact_segments
 from .clinical import ai_notice
 from .openai_asr import OPENAI_ASR_MODEL
 from .identity import router as identity_router
+from .diagnoses import catalog, search_diagnoses, by_code
+from .history import snapshot
 
 app = FastAPI(title='Anamio API', version='0.1.0', docs_url='/api/docs', openapi_url='/api/openapi.json')
 app.include_router(identity_router)
@@ -74,6 +76,11 @@ def encounter_view(e):
     result['fields'] = Consultation.model_validate(e.fields).model_dump()
     result['ai_notice'] = ai_notice()
     return result
+
+
+@app.get('/api/v1/diagnoses', tags=['Справочники'])
+def diagnoses(q: str = Query('', max_length=150), limit: int = Query(20, ge=1, le=50), doctor=Depends(current_doctor)):
+    return {'items': search_diagnoses(q, limit), 'version': catalog()['version'], 'source': catalog()['source'], 'total': len(catalog()['items'])}
 
 
 def verify_version(e, version):
@@ -154,6 +161,7 @@ def configuration(doctor=Depends(current_doctor)):
     return {'asr_provider': s.asr_provider, 'asr_model': OPENAI_ASR_MODEL if s.asr_provider == 'openai' else s.asr_model,
             'asr_configured': bool(s.openai_api_key.strip()) if s.asr_provider == 'openai' else s.asr_provider in ('self_hosted', 'faster_whisper'),
             'llm_provider': s.llm_provider, 'llm_model': s.llm_model, 'llm_is_cloud': s.llm_is_cloud,
+            'llm_configured': bool(s.openai_api_key.strip()) if s.llm_provider == 'openai' else s.llm_provider != 'disabled',
             'diarization': s.asr_provider == 'openai' or bool(s.diarization_model), 'mis_configured': bool(s.mis_url),
             'cloud_asr_configured': bool(s.cloud_asr_url), 'audio_retention_hours': s.audio_retention_hours}
 
@@ -231,14 +239,17 @@ def start_encounter(patient_id: str, doctor=Depends(current_doctor), db=Depends(
 @app.get('/api/v1/encounters/{encounter_id}', tags=['Приёмы'])
 def get_encounter(encounter_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = owned(db, Encounter, encounter_id, doctor)
-    latest = db.scalar(select(Job).where(Job.encounter_id == e.id).order_by(Job.created_at.desc(), Job.id.desc()).limit(1))
-    return {**encounter_view(e), 'last_job': {'state': latest.state, 'error': latest.error} if latest else None}
+    latest = db.scalar(select(Job).where(Job.encounter_id == e.id, Job.kind != 'revision').order_by(Job.created_at.desc(), Job.id.desc()).limit(1))
+    return {**encounter_view(e), 'last_job': {'id': latest.id, 'kind': latest.kind, 'state': latest.state, 'error': latest.error, 'stage': latest.payload.get('stage')} if latest else None}
 
 
 @app.patch('/api/v1/encounters/{encounter_id}', tags=['Приёмы'])
 def edit_encounter(encounter_id: str, body: EncounterPatch, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = owned(db, Encounter, encounter_id, doctor, True)
     verify_version(e, body.version)
+    if body.fields.diagnosis_code and body.fields.diagnosis_code not in by_code():
+        raise HTTPException(422, 'Выберите существующий код диагноза из справочника')
+    snapshot(db, e, 'before_edit')
     e.fields = body.fields.model_dump()
     e.speaker_roles = body.speaker_roles
     if body.transcript is not None:
@@ -247,13 +258,14 @@ def edit_encounter(encounter_id: str, body: EncounterPatch, doctor=Depends(curre
         e.privacy_reviewed = False
     e.status, e.reviewed_at = 'draft', None
     e.version += 1
+    snapshot(db, e, 'edit')
     audit(db, doctor.id, 'encounter.edit', e.id)
     db.commit()
     return encounter_view(e)
 
 
 @app.post('/api/v1/encounters/{encounter_id}/audio', tags=['Приёмы'], status_code=202)
-async def upload_audio(encounter_id: str, file: UploadFile = File(...), doctor=Depends(current_doctor), db=Depends(db_session)):
+async def upload_audio(encounter_id: str, file: UploadFile = File(...), analyze: bool = Form(False), doctor=Depends(current_doctor), db=Depends(db_session)):
     e = owned(db, Encounter, encounter_id, doctor, True)
     p = db.get(Patient, e.patient_id)
     if not e.recording_consent or not p.recording_consent:
@@ -267,8 +279,11 @@ async def upload_audio(encounter_id: str, file: UploadFile = File(...), doctor=D
             raise HTTPException(403, 'Нужно отдельное согласие пациента на передачу исходной записи в OpenAI. Укажите его в карте пациента.')
         if not settings().openai_api_key.strip():
             raise HTTPException(503, 'Добавьте OPENAI_API_KEY на сервере и перезапустите API и worker.')
-    if (file.content_type or '').split(';')[0] not in ('audio/webm', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/mp4', 'video/webm', 'audio/mpeg'):
-        raise HTTPException(415, 'Поддерживается WebM, WAV, OGG, MP4 или MP3')
+    if analyze and settings().llm_is_cloud and not p.cloud_consent:
+        raise HTTPException(403, 'Для анализа нужно согласие пациента на обработку обезличенного текста облачной LLM')
+    mime = (file.content_type or '').split(';')[0]
+    if mime not in ('audio/webm', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/mp4', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/x-m4a', 'audio/flac', 'audio/x-flac'):
+        raise HTTPException(415, 'Поддерживается WebM, WAV, OGG, MP4, M4A, FLAC или MP3')
     data = bytearray()
     while chunk := await file.read(1024 * 1024):
         data.extend(chunk)
@@ -281,7 +296,8 @@ async def upload_audio(encounter_id: str, file: UploadFile = File(...), doctor=D
     path = folder / (uid() + '.enc')
     path.write_bytes(Fernet(settings().encryption_key.encode()).encrypt(bytes(data)))
     try:
-        return queue(db, e, 'transcribe', {'audio': path.name, 'asr_provider': settings().asr_provider})
+        return queue(db, e, 'transcribe', {'audio': path.name, 'asr_provider': settings().asr_provider,
+            'mime': mime, 'bytes': len(data), 'analyze': analyze, 'stage': 'queued'})
     except Exception:
         path.unlink(missing_ok=True)
         raise
@@ -306,6 +322,38 @@ def masked_audio_path(db, e):
     if not path or not path.is_file():
         raise HTTPException(410, 'Обезличенная запись недоступна или удалена по сроку хранения')
     return path
+
+
+@app.get('/api/v1/encounters/{encounter_id}/recordings', tags=['Приёмы'])
+def recordings(encounter_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = owned(db, Encounter, encounter_id, doctor)
+    jobs = db.scalars(select(Job).where(Job.encounter_id == e.id, Job.kind == 'transcribe').order_by(Job.created_at.desc()))
+    return [{'id': j.id, 'created_at': j.created_at, 'state': j.state, 'bytes': j.payload.get('bytes'),
+             'available': bool(j.payload.get('audio') and (Path(settings().audio_dir) / Path(j.payload['audio']).name).is_file()),
+             'transcript': j.payload.get('result_transcript', []), 'speaker_roles': j.payload.get('result_roles', {})} for j in jobs]
+
+
+@app.get('/api/v1/encounters/{encounter_id}/recordings/{recording_id}/audio', tags=['Приёмы'])
+def recording_audio(encounter_id: str, recording_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = owned(db, Encounter, encounter_id, doctor)
+    j = db.get(Job, recording_id)
+    if not j or j.encounter_id != e.id or j.kind != 'transcribe':
+        raise HTTPException(404, 'Запись не найдена')
+    name = j.payload.get('audio')
+    path = Path(settings().audio_dir) / Path(name).name if name else None
+    if not path or not path.is_file():
+        raise HTTPException(410, 'Запись недоступна; старые записи могли быть удалены прежней политикой хранения')
+    data = Fernet(settings().encryption_key.encode()).decrypt(path.read_bytes())
+    audit(db, doctor.id, 'audio.original.read', e.id)
+    db.commit()
+    return Response(data, media_type=j.payload.get('mime', 'audio/webm'), headers={'Content-Disposition': 'inline; filename="consultation-audio"'})
+
+
+@app.get('/api/v1/encounters/{encounter_id}/history', tags=['Приёмы'])
+def history(encounter_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = owned(db, Encounter, encounter_id, doctor)
+    return [{'id': j.id, 'created_at': j.created_at, **j.payload} for j in db.scalars(select(Job).where(
+        Job.encounter_id == e.id, Job.kind == 'revision').order_by(Job.created_at.desc(), Job.id.desc()).limit(100))]
 
 
 @app.get('/api/v1/encounters/{encounter_id}/masked-audio', tags=['Приёмы'])
@@ -348,7 +396,9 @@ def generate(encounter_id: str, body: Version, doctor=Depends(current_doctor), d
     verify_version(e, body.version)
     if not e.transcript:
         raise HTTPException(422, 'Сначала добавьте расшифровку')
-    if settings().llm_is_cloud and (not e.privacy_reviewed or not db.get(Patient, e.patient_id).cloud_consent):
+    p = db.get(Patient, e.patient_id)
+    direct_openai = settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')
+    if settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not direct_openai)):
         raise HTTPException(403, 'Для облачной LLM нужны согласие пациента и проверка маскирования врачом')
     return queue(db, e, 'generate')
 
@@ -357,10 +407,11 @@ def generate(encounter_id: str, body: Version, doctor=Depends(current_doctor), d
 def approve(encounter_id: str, body: Version, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = owned(db, Encounter, encounter_id, doctor, True)
     verify_version(e, body.version)
-    if not any(v.strip() for v in e.fields.values()):
+    if not any(isinstance(e.fields.get(k), str) and e.fields[k].strip() for k in ('complaints', 'anamnesis', 'examination', 'diagnosis', 'recommendations', 'ai_conclusion')):
         raise HTTPException(422, 'Заполните лист консультации')
     e.status, e.reviewed_at = 'approved', now()
     e.version += 1
+    snapshot(db, e, 'approve')
     audit(db, doctor.id, 'encounter.approve', e.id)
     db.commit()
     return encounter_view(e)
@@ -372,12 +423,31 @@ def job_status(job_id: str, doctor=Depends(current_doctor), db=Depends(db_sessio
     if not j:
         raise HTTPException(404, 'Задание не найдено')
     owned(db, Encounter, j.encounter_id, doctor)
-    return {'id': j.id, 'state': j.state, 'kind': j.kind, 'error': j.error}
+    return {'id': j.id, 'state': j.state, 'kind': j.kind, 'error': j.error, 'stage': j.payload.get('stage')}
 
 
 def export_view(db, e):
     p = db.get(Patient, e.patient_id)
-    return {'schema_version': '1.0', 'encounter': encounter_view(e), 'patient': patient_view(p), 'doctor_id': e.doctor_id}
+    return {'schema_version': '1.1', 'encounter': encounter_view(e), 'patient': patient_view(p), 'doctor_id': e.doctor_id,
+            'recordings_url': f'/api/v1/integration/encounters/{e.id}/recordings'}
+
+
+@app.get('/api/v1/integration/encounters/{encounter_id}/recordings', tags=['МИС'])
+def integration_recordings(encounter_id: str, doctor=Depends(integration_doctor), db=Depends(db_session)):
+    e = owned(db, Encounter, encounter_id, doctor)
+    if e.status not in ('approved', 'exported'):
+        raise HTTPException(404, 'Подтверждённый приём не найден')
+    audit(db, doctor.id, 'integration.recordings', e.id)
+    db.commit()
+    return recordings(encounter_id, doctor, db)
+
+
+@app.get('/api/v1/integration/encounters/{encounter_id}/recordings/{recording_id}/audio', tags=['МИС'])
+def integration_audio(encounter_id: str, recording_id: str, doctor=Depends(integration_doctor), db=Depends(db_session)):
+    e = owned(db, Encounter, encounter_id, doctor)
+    if e.status not in ('approved', 'exported'):
+        raise HTTPException(404, 'Подтверждённый приём не найден')
+    return recording_audio(encounter_id, recording_id, doctor, db)
 
 
 @app.post('/api/v1/encounters/{encounter_id}/send-to-mis', tags=['МИС'], status_code=202)

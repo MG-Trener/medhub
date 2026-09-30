@@ -12,6 +12,7 @@ from .privacy import redact_segments
 from .providers import transcribe, generate, cloud_transcribe, ProviderError
 from .audio_privacy import mask_audio
 from .clinical import ai_notice
+from .history import snapshot
 
 log = logging.getLogger('medhub.worker')
 
@@ -26,6 +27,8 @@ def process_one():
         job_id, encounter_id, kind, payload = job.id, job.encounter_id, job.kind, job.payload
     audio_path = None
     masked_path = None
+    generated = None
+    analysis_error = None
     try:
         with SessionLocal() as db:
             e = db.get(Encounter, encounter_id)
@@ -40,7 +43,7 @@ def process_one():
                     raise ProviderError('Провайдер распознавания изменился. Отправьте запись повторно.')
                 if provider == 'openai' and not p.data.get('openai_audio_consent'):
                     raise ProviderError('Нет согласия на передачу исходной записи в OpenAI')
-            if kind == 'generate' and settings().llm_is_cloud and (not p.cloud_consent or not e.privacy_reviewed):
+            if kind == 'generate' and settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not (settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')))):
                 raise ProviderError('Нет согласия на облако или проверки маскирования')
             transcript = e.redacted_transcript
             original_segments = e.transcript
@@ -49,7 +52,8 @@ def process_one():
             if kind == 'cloud_asr' and (not p.data.get('cloud_audio_consent') or not e.privacy_reviewed):
                 raise ProviderError('Согласие на облако или проверка маскирования отсутствует')
             patient_data = p.data
-            export = {'schema_version': '1.0', 'encounter': {k: getattr(e, k) for k in ('id', 'patient_id', 'fields', 'transcript', 'speaker_roles', 'reviewed_at', 'version', 'created_at')}, 'patient': {'id': p.id, 'external_id': p.external_id, **p.data}, 'doctor_id': e.doctor_id}
+            export = {'schema_version': '1.1', 'encounter': {k: getattr(e, k) for k in ('id', 'patient_id', 'fields', 'transcript', 'speaker_roles', 'reviewed_at', 'version', 'created_at')}, 'patient': {'id': p.id, 'external_id': p.external_id, **p.data}, 'doctor_id': e.doctor_id}
+            export['recordings_url'] = f'/api/v1/integration/encounters/{e.id}/recordings'
             export['encounter']['ai_notice'] = ai_notice()
             if kind == 'export' and not e.reviewed_at:
                 raise ProviderError('Лист не подтверждён врачом')
@@ -59,12 +63,29 @@ def process_one():
             with tempfile.TemporaryDirectory(prefix='medhub-audio-') as directory:
                 decoded = Path(directory) / 'recording.audio'
                 decoded.write_bytes(audio)
+                with SessionLocal() as progress:
+                    current = progress.get(Job, job_id)
+                    current.payload = {**current.payload, 'stage': 'transcribing'}
+                    progress.commit()
                 result = transcribe(decoded)
                 redacted = redact_segments(result, patient_data)
                 indices = [i for i, (raw, masked) in enumerate(zip(result, redacted)) if raw['text'] != masked['text']]
                 masked = mask_audio(decoded, result, indices)
                 masked_path = audio_path.with_name(audio_path.stem + '.masked.enc')
                 masked_path.write_bytes(Fernet(settings().encryption_key.encode()).encrypt(masked))
+            if payload.get('analyze'):
+                try:
+                    with SessionLocal() as progress:
+                        current_patient = progress.get(Patient, e.patient_id)
+                        if not current_patient.recording_consent or (settings().llm_is_cloud and (
+                            not current_patient.cloud_consent or not (settings().llm_provider == 'openai' and current_patient.data.get('openai_audio_consent')))):
+                            raise ProviderError('Для автоматического анализа нужны согласия на OpenAI и облачный текст. Расшифровка сохранена.')
+                        current = progress.get(Job, job_id)
+                        current.payload = {**current.payload, 'stage': 'generating'}
+                        progress.commit()
+                    generated = generate(redacted)
+                except Exception as error:
+                    analysis_error = str(error) if isinstance(error, ProviderError) else 'Генерация не завершена. Расшифровка сохранена; повторите анализ или заполните лист вручную.'
         elif kind == 'generate':
             result = generate(transcript)
         elif kind in ('mute_audio', 'cloud_asr'):
@@ -93,6 +114,7 @@ def process_one():
             job = db.get(Job, job_id)
             if e.version != payload['version']:
                 raise ProviderError('Приём был изменён во время обработки')
+            snapshot(db, e, 'before_' + kind)
             if kind in ('transcribe', 'cloud_asr'):
                 if not p.recording_consent or not e.recording_consent:
                     raise ProviderError('Согласие на запись отозвано. Результат удалён.')
@@ -106,13 +128,26 @@ def process_one():
                 e.speaker_roles = {x['speaker']: 'unknown' for x in result}
                 e.reviewed_at = None
                 if kind == 'transcribe':
-                    job.payload = {**job.payload, 'masked_audio': masked_path.name}
+                    job.payload = {**job.payload, 'masked_audio': masked_path.name, 'result_transcript': result}
+                    if generated:
+                        if settings().llm_is_cloud and (not p.cloud_consent or not p.data.get('openai_audio_consent')):
+                            generated = None
+                            analysis_error = 'Согласие на анализ отозвано. Результат LLM не сохранён.'
+                        else:
+                            diagnosis = e.fields.get('diagnosis', '')
+                            diagnosis_code = e.fields.get('diagnosis_code', '')
+                            e.fields = {**generated['fields'], 'diagnosis': diagnosis or generated['fields'].get('diagnosis', ''),
+                                        'diagnosis_code': diagnosis_code or generated['fields'].get('diagnosis_code', '')}
+                            e.speaker_roles = generated['speaker_roles']
+                    job.payload = {**job.payload, 'result_roles': e.speaker_roles, 'stage': 'done'}
+                    job.error = analysis_error[:250] if analysis_error else None
             elif kind == 'generate':
-                if settings().llm_is_cloud and (not p.cloud_consent or not e.privacy_reviewed):
+                if settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not (settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')))):
                     raise ProviderError('Согласие на облако отозвано. Результат удалён.')
                 # Повторная генерация не заменяет диагноз, уже внесённый врачом.
                 diagnosis = e.fields.get('diagnosis', '')
-                e.fields = {**result['fields'], 'diagnosis': diagnosis or result['fields'].get('diagnosis', '')}
+                diagnosis_code = e.fields.get('diagnosis_code', '')
+                e.fields = {**result['fields'], 'diagnosis': diagnosis or result['fields'].get('diagnosis', ''), 'diagnosis_code': diagnosis_code or result['fields'].get('diagnosis_code', '')}
                 e.speaker_roles = result['speaker_roles']
                 e.reviewed_at = None
             elif kind == 'mute_audio':
@@ -122,6 +157,7 @@ def process_one():
             # Отправка в МИС не меняет клиническую версию документа (idempotency).
             if kind != 'export':
                 e.version += 1
+            snapshot(db, e, kind)
             job.state, job.updated_at = 'done', now()
             audit(db, e.doctor_id, f'job.{kind}.done', e.id)
             db.commit()
@@ -138,9 +174,6 @@ def process_one():
             audit(db, e.doctor_id, f'job.{kind}.failed', e.id)
             db.commit()
         log.warning('job=%s failed type=%s', job_id, type(error).__name__)
-    finally:
-        if kind == 'transcribe':
-            (Path(settings().audio_dir) / Path(payload['audio']).name).unlink(missing_ok=True)
     return True
 
 
@@ -155,9 +188,13 @@ def recover():
 
 
 def cleanup():
-    cutoff = now() - settings().audio_retention_hours * 3600
+    # Записи приёмов и их маскированные копии сохраняются. Очищаем только сиротские файлы.
+    cutoff = now() - 24 * 3600
+    with SessionLocal() as db:
+        referenced = {Path(j.payload[key]).name for j in db.scalars(select(Job).where(Job.kind.in_(['transcribe', 'mute_audio', 'cloud_asr'])))
+                      for key in ('audio', 'masked_audio') if j.payload.get(key)}
     for path in Path(settings().audio_dir).glob('*.enc'):
-        if path.stat().st_mtime < cutoff:
+        if path.name not in referenced and path.stat().st_mtime < cutoff:
             path.unlink(missing_ok=True)
 
 

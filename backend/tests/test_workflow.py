@@ -102,7 +102,7 @@ def test_worker_transcription_and_generation(client, doctor, monkeypatch):
     e = client.get(f'/api/v1/encounters/{e["id"]}').json()
     assert e['status'] == 'ready'
     assert 'Алия' not in e['redacted_transcript'][0]['text']
-    assert not [p for p in Path(settings().audio_dir).glob('*.enc') if not p.name.endswith('.masked.enc')]
+    assert client.get(f'/api/v1/encounters/{e["id"]}/recordings').json()[0]['available'] is True
     e = client.patch(f'/api/v1/encounters/{e["id"]}', json={'version': e['version'], 'fields': Consultation(diagnosis='Запись врача').model_dump()}).json()
     monkeypatch.setattr('app.worker.generate', lambda segments: {'fields': Consultation(complaints='Тестовая жалоба', diagnosis='Ответ модели', ai_conclusion='Описаны жалобы; требуются уточнения.').model_dump(), 'speaker_roles': {'SPEAKER_00': 'patient'}})
     assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': e['version']}).status_code == 202
@@ -124,7 +124,7 @@ def test_consent_revoked_while_job_queued(client, doctor, monkeypatch):
     monkeypatch.setattr('app.worker.transcribe', lambda path: (_ for _ in ()).throw(AssertionError('Must not call ASR')))
     process_one()
     assert client.get(f'/api/v1/jobs/{result["job_id"]}').json()['state'] == 'failed'
-    assert not [p for p in Path(settings().audio_dir).glob('*.enc') if not p.name.endswith('.masked.enc')]
+    assert client.get(f'/api/v1/encounters/{e["id"]}/recordings').json()[0]['available'] is True
 
 
 def test_csrf_and_validation_do_not_leak_password(client):

@@ -53,14 +53,55 @@ class Segment(Strict):
     end: float = Field(ge=0)
     text: str = Field(max_length=10000)
 
+    @model_validator(mode='after')
+    def valid_time(self):
+        import math
+        if not math.isfinite(self.start) or not math.isfinite(self.end) or self.end < self.start:
+            raise ValueError('Некорректные таймкоды')
+        return self
+
+
+class FieldSource(Strict):
+    field: str = Field(max_length=50)
+    segments: list[int] = Field(default_factory=list, max_length=100)
+
+
+class DiagnosisSuggestion(Strict):
+    code: str = Field(max_length=10)
+    name: str = Field(default='', max_length=500)
+    reason: str = Field(default='', max_length=2000)
+
 
 class Consultation(Strict):
+    visit_type: Literal['primary', 'repeat'] = 'primary'
+    visit_format: Literal['in_person', 'remote'] = 'in_person'
     complaints: str = Field(default='', max_length=15000)
     anamnesis: str = Field(default='', max_length=15000)
+    life_history: str = Field(default='', max_length=15000)
+    allergies: str = Field(default='', max_length=5000)
+    medications: str = Field(default='', max_length=5000)
+    chronic_conditions: str = Field(default='', max_length=5000)
+    family_history: str = Field(default='', max_length=5000)
+    operations: str = Field(default='', max_length=5000)
+    habits: str = Field(default='', max_length=5000)
     examination: str = Field(default='', max_length=15000)
+    temperature: str = Field(default='', max_length=50)
+    height: str = Field(default='', max_length=50)
+    weight: str = Field(default='', max_length=50)
+    pulse: str = Field(default='', max_length=50)
+    respiratory_rate: str = Field(default='', max_length=50)
+    blood_pressure: str = Field(default='', max_length=100)
+    spo2: str = Field(default='', max_length=50)
+    investigations: str = Field(default='', max_length=15000)
     diagnosis: str = Field(default='', max_length=10000)
+    diagnosis_code: str = Field(default='', max_length=10)
     recommendations: str = Field(default='', max_length=15000)
+    follow_up: str = Field(default='', max_length=5000)
     ai_conclusion: str = Field(default='', max_length=15000)
+    sources: list[FieldSource] = Field(default_factory=list, max_length=50)
+    diagnosis_suggestions: list[DiagnosisSuggestion] = Field(default_factory=list, max_length=5)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+    reviewed_fields: list[str] = Field(default_factory=list, max_length=50)
 
 
 class EncounterPatch(Strict):

@@ -9,3 +9,7 @@
 ## 2026-09-30 13:07:19 +05:00 — Добавлен справочник МКБ-10 с поиском по кодам, сокращениям и опечаткам
 
 Изменены: `backend/app/catalogs/README.md`, `backend/app/catalogs/icd10.ru.json`, `backend/app/diagnoses.py`, `backend/tests/test_diagnoses.py`, ``.
+
+## 2026-09-30 13:21:10 +05:00 — Добавлены автоматический анализ OpenAI, архив аудио и версий приёма, API МИС
+
+Изменены: `.env.example`, `backend/app/config.py`, `backend/app/history.py`, `backend/app/main.py`, `backend/app/openai_asr.py`, `backend/app/openai_llm.py`, `backend/app/providers.py`, `backend/app/schemas.py`, `backend/app/worker.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_openai_asr.py`, `backend/tests/test_openai_llm.py`, `backend/tests/test_workflow.py`, ``.

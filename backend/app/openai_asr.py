@@ -72,7 +72,10 @@ def parse_diarized(data):
             if len(speakers) >= 100:
                 raise ProviderError('Слишком много говорящих в ответе OpenAI')
             speakers[label] = f'SPEAKER_{len(speakers):02d}'
-        segment = Segment(speaker=speakers[label], start=raw['start'], end=raw['end'], text=raw['text'])
+        try:
+            segment = Segment(speaker=speakers[label], start=raw['start'], end=raw['end'], text=raw['text'])
+        except (ValueError, KeyError, TypeError):
+            raise ProviderError('OpenAI вернул некорректный фрагмент или таймкоды') from None
         if not math.isfinite(segment.start) or not math.isfinite(segment.end) or segment.end < segment.start:
             raise ProviderError('OpenAI вернул некорректные таймкоды')
         result.append(segment.model_dump())
