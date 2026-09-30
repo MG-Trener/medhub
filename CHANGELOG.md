@@ -57,3 +57,7 @@
 ## 2026-09-30 14:06:59 +05:00 — Добавлена резервная копия medhub перед серверными миграциями
 
 Изменены: `deploy/backup-database.py`, `deploy/update-service-release.sh`, ``.
+
+## 2026-09-30 14:10:01 +05:00 — Описаны Smart Consult и результаты проверки всех 18 требований
+
+Изменены: `README.md`, `docs/acceptance-2026-09-30-smart-consult.md`, ``.
