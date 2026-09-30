@@ -73,3 +73,7 @@
 ## 2026-09-30 14:33:28 +05:00 — Реализованы проверка ЭЦП пациента через SIGEX и отзыв согласия
 
 Изменены: `.env.example`, `backend/app/config.py`, `backend/app/consent.py`, `backend/app/consent_sigex.py`, `backend/app/main.py`, `backend/app/worker.py`, `backend/tests/conftest.py`, `backend/tests/test_consent_policy.py`, `backend/tests/test_patient_consents.py`.
+
+## 2026-09-30 14:33:33 +05:00 — Добавлены подписание согласия по QR и NCALayer и статус ЭЦП в карте
+
+Изменены: `frontend/src/App.vue`, `frontend/src/ConsentSigning.vue`, `frontend/src/eds.js`, `frontend/tests/eds.test.js`.

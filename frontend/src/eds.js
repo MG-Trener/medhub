@@ -1,20 +1,24 @@
-export function signNonce(nonce) {
+function signCms(data, { signal, document = false } = {}) {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new Error('Подписание отменено')); return }
     const socket = new WebSocket('wss://127.0.0.1:13579/')
     let settled = false
     const finish = (error, result) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      signal?.removeEventListener('abort', cancel)
       socket.close()
       error ? reject(error) : resolve(result)
     }
+    const cancel = () => finish(new Error('Подписание отменено'))
     const timer = setTimeout(() => finish(new Error('Время подписания истекло')), 120000)
+    signal?.addEventListener('abort', cancel, { once: true })
     socket.onerror = () => finish(new Error('Запустите NCALayer и разрешите соединение с ним'))
     socket.onclose = () => finish(new Error('Соединение с NCALayer закрыто'))
     socket.onopen = () => socket.send(JSON.stringify({ module: 'kz.gov.pki.knca.basics', method: 'sign', args: {
-      format: 'cms', data: nonce, signingParams: { decode: true, encapsulate: true, digested: false },
-      signerParams: { extKeyUsageOids: ['1.2.398.3.3.4.1.1'] }, locale: 'ru'
+      format: 'cms', data, signingParams: { decode: true, encapsulate: true, digested: false, ...(document ? { tsaProfile: {} } : {}) },
+      signerParams: { extKeyUsageOids: document ? ['1.3.6.1.5.5.7.3.4', '1.2.398.3.3.4.1.1'] : ['1.2.398.3.3.4.1.1'] }, locale: 'ru'
     } }))
     socket.onmessage = ({ data }) => {
       try {
@@ -30,3 +34,7 @@ export function signNonce(nonce) {
     }
   })
 }
+
+// Авторизация сохраняет прежний контракт; согласие подписывает точные байты PDF.
+export const signData = (data, options = {}) => signCms(data, { ...options, document: true })
+export const signNonce = nonce => signCms(nonce)
