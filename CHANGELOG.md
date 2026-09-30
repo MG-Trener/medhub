@@ -109,3 +109,7 @@
 ## 2026-09-30 15:36:43 +05:00 — Добавлена порционная обработка речи с архивом и восстановлением очереди
 
 Изменены: `backend/app/live.py`, `backend/app/main.py`, `backend/app/schemas.py`, `backend/app/worker.py`, `backend/tests/test_live.py`.
+
+## 2026-09-30 15:36:54 +05:00 — Добавлены непрерывные аудиофрагменты и звуковые сигналы записи
+
+Изменены: `frontend/src/audio-chunks.js`, `frontend/src/live-upload.js`, `frontend/src/pcm-worklet.js`, `frontend/src/recorder.js`, `frontend/src/recording-sounds.js`, `frontend/tests/live.test.js`, `frontend/tests/recorder.test.js`.

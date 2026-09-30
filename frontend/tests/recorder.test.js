@@ -34,5 +34,14 @@ test('пауза, продолжение и ожидание последнег�
   assert.equal(stopped,true)
   recorder.clearAudio()
   assert.equal(recorder.audioBlob.value,null)
+  let interrupted = false
+  await recorder.start({ onInterrupted: () => { interrupted = true } })
+  track.onended()
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(recorder.recording.value, false)
+  assert.equal(interrupted, true)
+  assert.match(recorder.recorderError.value, /Микрофон отключён/)
+  assert.equal(await recorder.audioBlob.value.text(), 'final chunk')
+  recorder.clearAudio()
 })
 
