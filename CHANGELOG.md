@@ -77,3 +77,7 @@
 ## 2026-09-30 14:33:33 +05:00 — Добавлены подписание согласия по QR и NCALayer и статус ЭЦП в карте
 
 Изменены: `frontend/src/App.vue`, `frontend/src/ConsentSigning.vue`, `frontend/src/eds.js`, `frontend/tests/eds.test.js`.
+
+## 2026-09-30 14:35:49 +05:00 — Описаны процедура согласия пациента и результаты проверок ЭЦП
+
+Изменены: `README.md`, `docs/sigex-patient-consent.md`, `docs/verification-2026-09-30-consent.md`.
