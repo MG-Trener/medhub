@@ -21,3 +21,7 @@
 ## 2026-09-30 13:25:09 +05:00 — Обновлён лист консультации: загрузка аудио, источники полей, диагнозы и утверждение
 
 Изменены: `frontend/src/App.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/Consultation.vue`, `frontend/src/DiagnosisPicker.vue`, `frontend/src/Settings.vue`, `frontend/src/recorder.js`, `frontend/src/style.css`, ``.
+
+## 2026-09-30 13:27:04 +05:00 — Документированы новый конвейер, хранение записей и результаты сквозной проверки
+
+Изменены: `README.md`, `docs/verification-2026-09-30.md`, ``.
