@@ -160,3 +160,7 @@
 ## 2026-09-30 16:50:54 +05:00 — Разделены способы подписания для ПК и мобильных устройств
 
 Изменены: `frontend/src/ConsentSigning.vue`, `frontend/src/IdentitySigning.vue`, `frontend/src/SigningMethods.vue`, `frontend/src/signingDevice.js`.
+
+## 2026-09-30 17:06:30 +05:00 — Перенесена проверка ЭЦП на локальный модуль НУЦ с OCSP
+
+Изменены: `.env.example`, `.gitignore`, `README.md`, `backend/Dockerfile`, `backend/app/config.py`, `backend/app/consent_sigex.py`, `backend/app/eds_local.py`, `backend/app/identity_xml.py`, `backend/tests/test_eds_local.py`, `backend/tests/test_identity_xml.py`, `backend/tests/test_patient_consents.py`, `backend/verifier/README.md`, `backend/verifier/Verifier.java`, `backend/verifier/VerifierChecks.java`, `backend/verifier/dependencies.sha256`, `backend/verifier/trust/nca_gost_2022.cer`, `backend/verifier/trust/nca_rsa_2022.cer`, `backend/verifier/trust/root_gost_2022.cer`, `backend/verifier/trust/root_rsa_2020.cer`, `deploy/update-service-release.sh`.
