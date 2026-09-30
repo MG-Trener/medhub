@@ -93,3 +93,7 @@
 ## 2026-09-30 14:55:18 +05:00 — Разделены ИИ-подсказки и результат врача, сохранены заполненные поля при анализе
 
 Изменены: `backend/app/clinical.py`, `backend/app/consultation_pdf.py`, `backend/app/main.py`, `backend/app/providers.py`, `backend/app/schemas.py`, `backend/app/worker.py`, `backend/tests/test_clinical_merge.py`, `backend/tests/test_consultation_pdf.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_openai_llm.py`, `backend/tests/test_providers.py`, `backend/tests/test_workflow.py`.
+
+## 2026-09-30 14:55:29 +05:00 — Развёрнута форма приёма на всю ширину, итог перенесён вниз, расшифровка свёрнута
+
+Изменены: `README.md`, `docs/verification-2026-09-30-ai-advisory.md`, `frontend/src/Consultation.vue`, `frontend/src/consultation.css`.

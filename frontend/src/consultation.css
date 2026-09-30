@@ -24,3 +24,21 @@
 .consultation-left .record-buttons{flex-wrap:wrap}
 .consultation-left .record-buttons button{white-space:normal;min-width:0;line-height:1.4}
 @media(max-width:700px){.visit-toolbar{align-items:stretch;flex-direction:column;padding:16px}.visit-toolbar-actions{display:grid;grid-template-columns:1fr}.visit-toolbar-actions button,.pdf-link{justify-content:center}.visit-timer strong{font-size:22px}.consultation-heading h1{font-size:28px}.leave-modal{margin:14px}.document-heading{align-items:stretch;flex-direction:column}}
+
+/* Поля и итоговый результат используют всю ширину кабинета. */
+.consultation-workspace.consultation-workspace{grid-template-columns:minmax(0,1fr);max-width:none;width:100%}
+.consultation-workspace .consultation-left{display:flex;flex-direction:column;width:100%}
+.transcript-disclosure>summary{cursor:pointer;padding:20px 24px;color:#8A5C43;font-size:18px;font-weight:650;border-top:1px solid #E9CFBA}
+.transcript-disclosure>summary .hint{font-size:13px;font-weight:400;margin-left:12px}
+.ai-advisory{margin:0;min-width:0}
+.ai-advisory .document-heading h3{display:flex;align-items:center;gap:10px}
+.ai-advisory-content{padding:0 24px 24px}
+.ai-advisory-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;margin-top:20px}
+.ai-advisory-grid article{padding:20px;border:1px solid #E9CFBA;border-radius:16px;background:#FFFCF9;min-width:0}
+.ai-advisory-grid h4{font-size:18px;color:#8A5C43;margin:0 0 12px;line-height:1.5}
+.ai-advisory-grid p,.legacy-ai p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
+.ai-advisory-grid ul{padding-left:20px;font-size:14px}
+.legacy-ai{margin-top:20px}.legacy-ai summary{cursor:pointer;color:#8A5C43}
+.final-result .final-actions{position:static;display:flex;flex-wrap:wrap;gap:12px}
+.final-result .final-actions button{flex:1;justify-content:center}
+@media(max-width:700px){.ai-advisory-grid{grid-template-columns:1fr}.ai-advisory-content{padding:0 19px 20px}.transcript-disclosure>summary .hint{display:block;margin:8px 0 0}.final-result .final-actions{padding:19px}}
