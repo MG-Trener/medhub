@@ -144,3 +144,7 @@
 ## 2026-09-30 16:29:45 +05:00 — Необязательный телефон пациента и врача с проверкой неверного номера
 
 Изменены: `backend/app/main.py`, `backend/app/patient_input.py`, `backend/app/schemas.py`, `backend/tests/test_patient_input.py`, `frontend/src/App.vue`, `frontend/src/Auth.vue`, `frontend/src/MaskedInput.vue`, `frontend/src/patient-input.js`, `frontend/tests/patient-input.test.js`.
+
+## 2026-09-30 16:32:46 +05:00 — Добавлены участники команды и их профессиональный опыт в README
+
+Изменены: `README.md`.
