@@ -13,3 +13,7 @@
 ## 2026-09-30 13:21:10 +05:00 — Добавлены автоматический анализ OpenAI, архив аудио и версий приёма, API МИС
 
 Изменены: `.env.example`, `backend/app/config.py`, `backend/app/history.py`, `backend/app/main.py`, `backend/app/openai_asr.py`, `backend/app/openai_llm.py`, `backend/app/providers.py`, `backend/app/schemas.py`, `backend/app/worker.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_openai_asr.py`, `backend/tests/test_openai_llm.py`, `backend/tests/test_workflow.py`, ``.
+
+## 2026-09-30 13:23:18 +05:00 — Исправлены остановка записи, пауза и ожидание разрешения микрофона
+
+Изменены: `frontend/package.json`, `frontend/src/recorder.js`, `frontend/tests/recorder.test.js`, ``.
