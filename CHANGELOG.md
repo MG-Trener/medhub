@@ -33,3 +33,7 @@
 ## 2026-09-30 13:35:16 +05:00 — Убраны лишние пояснения из README, упрощено описание приложения
 
 Изменены: `README.md`, ``.
+
+## 2026-09-30 13:58:42 +05:00 — Добавлен PDF листа первичного и повторного приёма с логотипом UMC
+
+Изменены: `backend/app/consultation_pdf.py`, `backend/assets/README.md`, `backend/assets/fonts/Inter-Bold.ttf`, `backend/assets/fonts/Inter-Regular.ttf`, `backend/assets/fonts/OFL.txt`, `backend/assets/umc-horizontal.png`, `backend/requirements.lock`, `backend/requirements.txt`, `backend/tests/test_consultation_pdf.py`, ``.
