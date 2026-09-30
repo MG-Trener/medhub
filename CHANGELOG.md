@@ -37,3 +37,7 @@
 ## 2026-09-30 13:58:42 +05:00 — Добавлен PDF листа первичного и повторного приёма с логотипом UMC
 
 Изменены: `backend/app/consultation_pdf.py`, `backend/assets/README.md`, `backend/assets/fonts/Inter-Bold.ttf`, `backend/assets/fonts/Inter-Regular.ttf`, `backend/assets/fonts/OFL.txt`, `backend/assets/umc-horizontal.png`, `backend/requirements.lock`, `backend/requirements.txt`, `backend/tests/test_consultation_pdf.py`, ``.
+
+## 2026-09-30 14:00:33 +05:00 — Добавлены общий поиск пациентов, этапы приёма и серверное окно записи 15 минут
+
+Изменены: `backend/app/db.py`, `backend/app/history.py`, `backend/app/lifecycle.py`, `backend/app/main.py`, `backend/app/schemas.py`, `backend/app/worker.py`, `backend/migrations/versions/0002_shared_patients_visit_lifecycle.py`, `backend/tests/audio_fixture.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_migration.py`, `backend/tests/test_openai_asr.py`, `backend/tests/test_visit_lifecycle.py`, `backend/tests/test_workflow.py`, ``.

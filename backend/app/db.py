@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from cryptography.fernet import Fernet
-from sqlalchemy import create_engine, String, Text, ForeignKey, Integer, Boolean, UniqueConstraint
+from sqlalchemy import create_engine, String, Text, ForeignKey, Integer, Boolean, UniqueConstraint, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.types import TypeDecorator
 from .config import settings
@@ -64,13 +64,20 @@ class Patient(Base):
     __table_args__ = (UniqueConstraint('doctor_id', 'iin_hash'), UniqueConstraint('doctor_id', 'external_id'))
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     doctor_id: Mapped[str] = mapped_column(ForeignKey('doctors.id'), index=True)
-    iin_hash: Mapped[str] = mapped_column(String(64))
+    iin_hash: Mapped[str] = mapped_column(String(64), index=True)
     external_id: Mapped[str | None] = mapped_column(String(100))
     search_tokens: Mapped[str] = mapped_column(Text)
     data: Mapped[dict] = mapped_column(Encrypted)
     recording_consent: Mapped[bool] = mapped_column(Boolean, default=False)
     cloud_consent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[int] = mapped_column(default=now)
+
+
+class PatientIdentity(Base):
+    """Общий реестр ИИН, сохраняющий старые карточки без слияния данных."""
+    __tablename__ = 'patient_identities'
+    iin_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    patient_id: Mapped[str] = mapped_column(ForeignKey('patients.id'), index=True)
 
 
 class Encounter(Base):
@@ -88,6 +95,13 @@ class Encounter(Base):
     version: Mapped[int] = mapped_column(default=1)
     reviewed_at: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[int] = mapped_column(default=now)
+    started_at: Mapped[int] = mapped_column(Integer, default=now)
+    ended_at: Mapped[int | None] = mapped_column(Integer)
+    paused_at: Mapped[int | None] = mapped_column(Integer)
+    paused_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    recording_deadline: Mapped[int] = mapped_column(Integer, default=lambda: now() + 900)
+    sent_at: Mapped[int | None] = mapped_column(Integer)
+    previous_encounter_id: Mapped[str | None] = mapped_column(ForeignKey('encounters.id'), index=True)
 
 
 class Job(Base):
@@ -115,6 +129,7 @@ class IdentityAttempt(Base):
 
 class Audit(Base):
     __tablename__ = 'audit'
+    __table_args__ = (Index('ix_audit_object_action', 'object_id', 'action'),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     doctor_id: Mapped[str] = mapped_column(String(36))
     action: Mapped[str] = mapped_column(String(50))

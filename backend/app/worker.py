@@ -52,9 +52,10 @@ def process_one():
             if kind == 'cloud_asr' and (not p.data.get('cloud_audio_consent') or not e.privacy_reviewed):
                 raise ProviderError('Согласие на облако или проверка маскирования отсутствует')
             patient_data = p.data
-            export = {'schema_version': '1.1', 'encounter': {k: getattr(e, k) for k in ('id', 'patient_id', 'fields', 'transcript', 'speaker_roles', 'reviewed_at', 'version', 'created_at')}, 'patient': {'id': p.id, 'external_id': p.external_id, **p.data}, 'doctor_id': e.doctor_id}
+            export = {'schema_version': '1.1', 'encounter': {k: getattr(e, k) for k in ('id', 'patient_id', 'fields', 'transcript', 'speaker_roles', 'reviewed_at', 'version', 'created_at', 'started_at', 'ended_at', 'paused_seconds', 'sent_at', 'previous_encounter_id')}, 'patient': {'id': p.id, 'external_id': p.external_id, **p.data}, 'doctor_id': e.doctor_id}
             export['recordings_url'] = f'/api/v1/integration/encounters/{e.id}/recordings'
             export['encounter']['ai_notice'] = ai_notice()
+            export = payload.get('export') or export
             if kind == 'export' and not e.reviewed_at:
                 raise ProviderError('Лист не подтверждён врачом')
         if kind == 'transcribe':
@@ -71,7 +72,8 @@ def process_one():
                 redacted = redact_segments(result, patient_data)
                 indices = [i for i, (raw, masked) in enumerate(zip(result, redacted)) if raw['text'] != masked['text']]
                 masked = mask_audio(decoded, result, indices)
-                masked_path = audio_path.with_name(audio_path.stem + '.masked.enc')
+                # У каждой попытки своя копия: ошибка повторной ASR не удаляет прежнюю.
+                masked_path = audio_path.with_name(job_id + '.masked.enc')
                 masked_path.write_bytes(Fernet(settings().encryption_key.encode()).encrypt(masked))
             if payload.get('analyze'):
                 try:
@@ -137,7 +139,8 @@ def process_one():
                             diagnosis = e.fields.get('diagnosis', '')
                             diagnosis_code = e.fields.get('diagnosis_code', '')
                             e.fields = {**generated['fields'], 'diagnosis': diagnosis or generated['fields'].get('diagnosis', ''),
-                                        'diagnosis_code': diagnosis_code or generated['fields'].get('diagnosis_code', '')}
+                                        'diagnosis_code': diagnosis_code or generated['fields'].get('diagnosis_code', ''),
+                                        'visit_type': e.fields.get('visit_type', 'primary'), 'visit_format': e.fields.get('visit_format', 'in_person')}
                             e.speaker_roles = generated['speaker_roles']
                     job.payload = {**job.payload, 'result_roles': e.speaker_roles, 'stage': 'done'}
                     job.error = analysis_error[:250] if analysis_error else None
@@ -147,13 +150,17 @@ def process_one():
                 # Повторная генерация не заменяет диагноз, уже внесённый врачом.
                 diagnosis = e.fields.get('diagnosis', '')
                 diagnosis_code = e.fields.get('diagnosis_code', '')
-                e.fields = {**result['fields'], 'diagnosis': diagnosis or result['fields'].get('diagnosis', ''), 'diagnosis_code': diagnosis_code or result['fields'].get('diagnosis_code', '')}
+                e.fields = {**result['fields'], 'diagnosis': diagnosis or result['fields'].get('diagnosis', ''), 'diagnosis_code': diagnosis_code or result['fields'].get('diagnosis_code', ''),
+                            'visit_type': e.fields.get('visit_type', 'primary'), 'visit_format': e.fields.get('visit_format', 'in_person')}
                 e.speaker_roles = result['speaker_roles']
                 e.reviewed_at = None
             elif kind == 'mute_audio':
                 e.privacy_reviewed = False
                 e.reviewed_at = None
             e.status = 'exported' if kind == 'export' else 'ready'
+            if kind == 'export':
+                e.sent_at = e.sent_at or now()
+                e.ended_at = e.ended_at or now()
             # Отправка в МИС не меняет клиническую версию документа (idempotency).
             if kind != 'export':
                 e.version += 1

@@ -1,3 +1,4 @@
+from audio_fixture import audio_bytes
 from pathlib import Path
 
 import httpx
@@ -22,7 +23,7 @@ def consent(client, p, allowed):
 
 def upload(client, e):
     return client.post(f'/api/v1/encounters/{e["id"]}/audio',
-        files={'file': ('test.webm', b'test' * 30, 'audio/webm')})
+        files={'file': ('a.wav', audio_bytes(), 'audio/wav')})
 
 
 def test_direct_openai_requires_distinct_consent_and_key(client, doctor, monkeypatch):

@@ -1,3 +1,4 @@
+from audio_fixture import audio_bytes
 from pathlib import Path
 import os
 from cryptography.fernet import Fernet
@@ -5,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from app.main import app
 from app.config import settings
-from app.db import SessionLocal, Job
+from app.db import SessionLocal, Job, Encounter
 from app.schemas import Consultation
 from app.worker import process_one, cleanup
 from app.providers import ProviderError
@@ -31,7 +32,7 @@ def test_automatic_analysis_archive_approval_and_mis(client, doctor, monkeypatch
         return {'fields': Consultation(complaints='Боль в горле', ai_conclusion='Тестовый черновик',
             sources=[{'field': 'complaints', 'segments': [0]}]).model_dump(), 'speaker_roles': {'SPEAKER_00': 'patient'}}
     monkeypatch.setattr('app.worker.generate', generate)
-    audio = b'synthetic-audio' * 20
+    audio = audio_bytes()
     job = client.post(f'/api/v1/encounters/{e["id"]}/audio', data={'analyze': 'true'}, files={'file': ('test.wav', audio, 'audio/wav')}).json()
     assert process_one()
     assert client.get(f'/api/v1/jobs/{job["job_id"]}').json()['state'] == 'done'
@@ -70,7 +71,7 @@ def test_automatic_analysis_archive_approval_and_mis(client, doctor, monkeypatch
 def test_llm_failure_preserves_recording_and_transcript(client, doctor, monkeypatch):
     p, e = prepare(client, monkeypatch)
     monkeypatch.setattr('app.worker.generate', lambda *a: (_ for _ in ()).throw(ProviderError('Недостаточно квоты')))
-    result = client.post(f'/api/v1/encounters/{e["id"]}/audio', data={'analyze':'true'}, files={'file':('a.wav', b'x'*80, 'audio/wav')})
+    result = client.post(f'/api/v1/encounters/{e["id"]}/audio', data={'analyze':'true'}, files={'file':('a.wav', audio_bytes(), 'audio/wav')})
     assert result.status_code == 202
     assert process_one()
     saved = client.get(f'/api/v1/encounters/{e["id"]}').json()
@@ -81,6 +82,9 @@ def test_llm_failure_preserves_recording_and_transcript(client, doctor, monkeypa
 
 def test_empty_metadata_cannot_be_approved_and_invalid_diagnosis_rejected(client, doctor):
     e = encounter(client, patient(client, False))
+    with SessionLocal() as db:
+        db.get(Encounter, e['id']).fields = Consultation().model_dump()
+        db.commit()
     assert client.post(f'/api/v1/encounters/{e["id"]}/approve', json={'version':e['version']}).status_code == 422
     assert client.patch(f'/api/v1/encounters/{e["id"]}', json={'version':e['version'], 'fields': {'diagnosis_code':'ZZ99'}}).status_code == 422
     assert client.get('/api/v1/diagnoses?q=I10').json()['items'][0]['code'] == 'I10'

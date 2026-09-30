@@ -10,20 +10,22 @@ from argon2.exceptions import VerifyMismatchError, VerificationError
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File, Query, Form
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy import select, delete, text
+from sqlalchemy import select, delete, text, or_, inspect
 from sqlalchemy.exc import IntegrityError
+from starlette.concurrency import run_in_threadpool
 from .config import settings
-from .db import Doctor, Session, ApiKey, Patient, Encounter, Job, Audit, db_session, now, uid, audit
+from .db import Doctor, Session, ApiKey, Patient, PatientIdentity, Encounter, Job, Audit, db_session, now, uid, audit
 from .security import current_doctor, integration_doctor, digest, passwords, search_tokens, registration_allowed, issue_session, owned
-from .schemas import Register, Login, PatientInput, Consent, EncounterPatch, Consultation, PrivacyReview, Version, CloudAudio, MuteAudio
+from .schemas import Register, Login, PatientInput, Consent, EncounterPatch, EncounterCreate, EncounterStart, LifecycleAction, Consultation, PrivacyReview, Version, CloudAudio, RecordingTranscribe, MuteAudio
 from .privacy import redact_segments
 from .clinical import ai_notice
 from .openai_asr import OPENAI_ASR_MODEL
 from .identity import router as identity_router
 from .diagnoses import catalog, search_diagnoses, by_code
 from .history import snapshot
+from .lifecycle import shared_patient, meaningful, empty_encounter, draft_token as sign_draft, load_draft, rotate_draft, previous_encounter, capture_allowed, claim_capture, seal, audio_signature_valid
 
-app = FastAPI(title='Anamio API', version='0.1.0', docs_url='/api/docs', openapi_url='/api/openapi.json')
+app = FastAPI(title='Smart Consult API', version='0.2.0', docs_url='/api/docs', openapi_url='/api/openapi.json')
 app.include_router(identity_router)
 rate_buckets = defaultdict(deque)
 rate_lock = threading.Lock()
@@ -68,13 +70,32 @@ async def conflict(request, exc):
 
 
 def patient_view(p):
-    return {'id': p.id, **p.data, 'external_id': p.external_id, 'recording_consent': p.recording_consent, 'cloud_consent': p.cloud_consent, 'created_at': p.created_at}
+    return {'id': p.id, **p.data, 'external_id': p.external_id, 'recording_consent': p.recording_consent, 'cloud_consent': p.cloud_consent,
+            'processing_consent': bool(p.recording_consent and p.cloud_consent and p.data.get('cloud_audio_consent') and p.data.get('openai_audio_consent')), 'created_at': p.created_at}
 
 
-def encounter_view(e):
-    result = {k: getattr(e, k) for k in ('id', 'patient_id', 'status', 'recording_consent', 'transcript', 'redacted_transcript', 'fields', 'speaker_roles', 'privacy_reviewed', 'version', 'reviewed_at', 'created_at')}
+def encounter_view(e, db=None, doctor=None):
+    result = {k: getattr(e, k) for k in ('id', 'doctor_id', 'patient_id', 'status', 'recording_consent', 'transcript', 'redacted_transcript', 'fields', 'speaker_roles', 'privacy_reviewed', 'version', 'reviewed_at', 'created_at', 'started_at', 'ended_at', 'paused_at', 'paused_seconds', 'recording_deadline', 'sent_at', 'previous_encounter_id')}
     result['fields'] = Consultation.model_validate(e.fields).model_dump()
     result['ai_notice'] = ai_notice()
+    result['persisted'] = inspect(e).persistent
+    result['read_only'] = bool(doctor and e.doctor_id != doctor.id)
+    result['can_edit'] = not result['read_only']
+    result['server_time'] = now()
+    result['capture_deadline'] = e.recording_deadline
+    result['recording_allowed'] = bool(e.recording_consent and not e.ended_at and not e.paused_at and now() < e.recording_deadline and not result['read_only'])
+    if not result['persisted']:
+        result['draft_token'] = sign_draft(e)
+    if db:
+        physician = db.get(Doctor, e.doctor_id)
+        patient = db.get(Patient, e.patient_id)
+        result['physician_name'] = result['doctor_name'] = physician.profile.get('name', '') if physician else ''
+        result['patient'] = patient_view(patient)
+        result['patient_name'], result['patient_iin'] = patient.data.get('name', ''), patient.data.get('iin', '')
+        result['recording_allowed'] = result['recording_allowed'] and patient.recording_consent
+    if result['read_only']:
+        result['transcript'], result['redacted_transcript'], result['speaker_roles'] = [], [], {}
+        result['fields']['sources'] = []
     return result
 
 
@@ -168,24 +189,34 @@ def configuration(doctor=Depends(current_doctor)):
 
 @app.get('/api/v1/patients', tags=['Пациенты'])
 def patients(q: str = Query('', max_length=150), offset: int = Query(0, ge=0), limit: int = Query(30, ge=1, le=100), doctor=Depends(current_doctor), db=Depends(db_session)):
-    stmt = select(Patient).where(Patient.doctor_id == doctor.id)
+    q = q.strip()
+    if not q or len(q) < 2:
+        return []
+    stmt = select(Patient)
     if q:
-        if re.fullmatch(r'\d{12}', q):
+        if re.fullmatch(r'[0-9]{12}', q):
             stmt = stmt.where(Patient.iin_hash == digest(q))
         elif len(q.strip()) < 2:
             return []
         else:
-            for word in re.findall(r'\w+', q.casefold()):
+            words = re.findall(r'\w+', q.casefold())
+            if not words:
+                return []
+            for word in words:
                 stmt = stmt.where(Patient.search_tokens.contains(digest(word)))
     return [patient_view(p) for p in db.scalars(stmt.order_by(Patient.created_at.desc(), Patient.id).offset(offset).limit(limit))]
 
 
 @app.post('/api/v1/patients', tags=['Пациенты'], status_code=201)
 def create_patient(body: PatientInput, doctor=Depends(current_doctor), db=Depends(db_session)):
+    if db.scalar(select(Patient.id).where(Patient.iin_hash == digest(body.iin)).limit(1)):
+        raise HTTPException(409, 'Пациент с таким ИИН уже существует. Найдите его в общем поиске')
     p = Patient(doctor_id=doctor.id, iin_hash=digest(body.iin), search_tokens=search_tokens(body.name), external_id=body.external_id,
         recording_consent=body.recording_consent, cloud_consent=body.cloud_consent,
         data=body.model_dump(mode='json', exclude={'external_id', 'recording_consent', 'cloud_consent'}))
     db.add(p)
+    db.flush()
+    db.add(PatientIdentity(iin_hash=p.iin_hash, patient_id=p.id))
     db.flush()
     audit(db, doctor.id, 'patient.create', p.id)
     audit(db, doctor.id, 'consent.granted' if p.recording_consent else 'consent.refused', p.id)
@@ -197,7 +228,7 @@ def create_patient(body: PatientInput, doctor=Depends(current_doctor), db=Depend
 
 @app.get('/api/v1/patients/{patient_id}', tags=['Пациенты'])
 def get_patient(patient_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
-    p = owned(db, Patient, patient_id, doctor)
+    p = shared_patient(db, patient_id)
     audit(db, doctor.id, 'patient.read', p.id)
     db.commit()
     return patient_view(p)
@@ -205,42 +236,89 @@ def get_patient(patient_id: str, doctor=Depends(current_doctor), db=Depends(db_s
 
 @app.patch('/api/v1/patients/{patient_id}/consent', tags=['Пациенты'])
 def consent(patient_id: str, body: Consent, doctor=Depends(current_doctor), db=Depends(db_session)):
-    p = owned(db, Patient, patient_id, doctor, True)
+    p = shared_patient(db, patient_id, True)
     p.recording_consent, p.cloud_consent = body.recording_consent, body.cloud_consent
-    p.data = {**p.data, 'cloud_audio_consent': body.cloud_audio_consent, 'openai_audio_consent': body.openai_audio_consent}
+    p.data = {**p.data, 'cloud_audio_consent': body.cloud_audio_consent, 'openai_audio_consent': body.openai_audio_consent,
+              'processing_consent': bool(body.processing_consent)}
     audit(db, doctor.id, 'consent.openai_audio.granted' if body.openai_audio_consent else 'consent.openai_audio.revoked', p.id)
     audit(db, doctor.id, 'consent.granted' if body.recording_consent else 'consent.revoked', p.id)
     # Отзыв действует также на уже созданные приёмы и будущие cloud-задания.
     for e in db.scalars(select(Encounter).where(Encounter.patient_id == p.id)):
         e.privacy_reviewed = False
-        if not body.recording_consent:
-            e.recording_consent = False
+        if not body.recording_consent or e.ended_at is None:
+            e.recording_consent = body.recording_consent
     db.commit()
     return patient_view(p)
 
 
 @app.get('/api/v1/patients/{patient_id}/encounters', tags=['Приёмы'])
 def patient_encounters(patient_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
-    owned(db, Patient, patient_id, doctor)
-    return [encounter_view(e) for e in db.scalars(select(Encounter).where(Encounter.patient_id == patient_id, Encounter.doctor_id == doctor.id).order_by(Encounter.created_at.desc()).limit(100))]
+    shared_patient(db, patient_id)
+    return [encounter_view(e, db, doctor) for e in db.scalars(select(Encounter).where(Encounter.patient_id == patient_id,
+        or_(Encounter.doctor_id == doctor.id, Encounter.status.in_(['approved', 'exported']))).order_by(Encounter.created_at.desc()).limit(100))]
 
 
 @app.post('/api/v1/patients/{patient_id}/encounters', tags=['Приёмы'], status_code=201)
-def start_encounter(patient_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
-    p = owned(db, Patient, patient_id, doctor)
-    e = Encounter(doctor_id=doctor.id, patient_id=p.id, recording_consent=p.recording_consent, fields=Consultation().model_dump())
-    db.add(e)
-    db.flush()
+def start_encounter(patient_id: str, body: EncounterStart | None = None, doctor=Depends(current_doctor), db=Depends(db_session)):
+    p = shared_patient(db, patient_id)
+    body = body or EncounterStart()
+    previous_id = previous_encounter(db, patient_id, body.previous_encounter_id, doctor.id)
+    e = empty_encounter(doctor.id, p, previous_encounter_id=previous_id)
+    e.fields = Consultation(visit_type=body.visit_type).model_dump()
     audit(db, doctor.id, 'encounter.start', e.id)
     db.commit()
-    return encounter_view(e)
+    return encounter_view(e, db, doctor)
+
+
+@app.get('/api/v1/encounters', tags=['Приёмы'])
+def my_encounters(status: str = Query('', max_length=30), offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), doctor=Depends(current_doctor), db=Depends(db_session)):
+    query = select(Encounter).where(Encounter.doctor_id == doctor.id)
+    if status:
+        if status == 'unreviewed':
+            query = query.where(Encounter.reviewed_at.is_(None))
+        elif status == 'reviewed':
+            query = query.where(Encounter.reviewed_at.is_not(None))
+        elif status in ('draft', 'ready', 'approved', 'exported', 'processing'):
+            query = query.where(Encounter.status == status)
+        else:
+            raise HTTPException(422, 'Неизвестный статус')
+    return [encounter_view(e, db, doctor) for e in db.scalars(query.order_by(Encounter.created_at.desc(), Encounter.id).offset(offset).limit(limit))]
 
 
 @app.get('/api/v1/encounters/{encounter_id}', tags=['Приёмы'])
-def get_encounter(encounter_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
-    e = owned(db, Encounter, encounter_id, doctor)
+def get_encounter(encounter_id: str, draft_token: str | None = Query(None, max_length=5000), doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = db.get(Encounter, encounter_id)
+    if not e:
+        e = load_draft(db, encounter_id, doctor, draft_token)
+        concurrent = db.get(Encounter, encounter_id)
+        if concurrent is None:
+            return {**encounter_view(e, db, doctor), 'last_job': None}
+        e = concurrent
+    if e.doctor_id != doctor.id and e.status not in ('approved', 'exported'):
+        raise HTTPException(404, 'Приём не найден')
     latest = db.scalar(select(Job).where(Job.encounter_id == e.id, Job.kind != 'revision').order_by(Job.created_at.desc(), Job.id.desc()).limit(1))
-    return {**encounter_view(e), 'last_job': {'id': latest.id, 'kind': latest.kind, 'state': latest.state, 'error': latest.error, 'stage': latest.payload.get('stage')} if latest else None}
+    return {**encounter_view(e, db, doctor), 'last_job': {'id': latest.id, 'kind': latest.kind, 'state': latest.state, 'error': latest.error, 'stage': latest.payload.get('stage')} if latest and e.doctor_id == doctor.id else None}
+
+
+@app.put('/api/v1/encounters/{encounter_id}', tags=['Приёмы'])
+def create_encounter(encounter_id: str, body: EncounterCreate, doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = load_draft(db, encounter_id, doctor, body.draft_token)
+    if db.get(Encounter, encounter_id):
+        raise HTTPException(409, 'Приём уже сохранён. Обновите его перед редактированием')
+    if body.fields.diagnosis_code and body.fields.diagnosis_code not in by_code():
+        raise HTTPException(422, 'Выберите существующий код диагноза из справочника')
+    e.fields, e.speaker_roles = body.fields.model_dump(), body.speaker_roles
+    e.transcript = [segment.model_dump() for segment in body.transcript]
+    e.redacted_transcript = redact_segments(e.transcript, db.get(Patient, e.patient_id).data)
+    if 'previous_encounter_id' in body.model_fields_set:
+        e.previous_encounter_id = previous_encounter(db, e.patient_id, body.previous_encounter_id, doctor.id, e.id)
+    if meaningful(e.fields, e.transcript):
+        db.add(e)
+        db.flush()
+        snapshot(db, e, 'create')
+        audit(db, doctor.id, 'encounter.create', e.id)
+        db.commit()
+    return encounter_view(e, db, doctor)
 
 
 @app.patch('/api/v1/encounters/{encounter_id}', tags=['Приёмы'])
@@ -250,23 +328,35 @@ def edit_encounter(encounter_id: str, body: EncounterPatch, doctor=Depends(curre
     if body.fields.diagnosis_code and body.fields.diagnosis_code not in by_code():
         raise HTTPException(422, 'Выберите существующий код диагноза из справочника')
     snapshot(db, e, 'before_edit')
+    if 'previous_encounter_id' in body.model_fields_set:
+        e.previous_encounter_id = previous_encounter(db, e.patient_id, body.previous_encounter_id, doctor.id, e.id)
     e.fields = body.fields.model_dump()
     e.speaker_roles = body.speaker_roles
     if body.transcript is not None:
-        e.transcript = [x.model_dump() for x in body.transcript]
-        e.redacted_transcript = redact_segments(e.transcript, db.get(Patient, e.patient_id).data)
-        e.privacy_reviewed = False
+        transcript = [x.model_dump() for x in body.transcript]
+        # Повторная отправка неизменённой расшифровки не отменяет ручное маскирование.
+        if transcript != e.transcript:
+            e.transcript = transcript
+            e.redacted_transcript = redact_segments(e.transcript, db.get(Patient, e.patient_id).data)
+            e.privacy_reviewed = False
     e.status, e.reviewed_at = 'draft', None
     e.version += 1
     snapshot(db, e, 'edit')
     audit(db, doctor.id, 'encounter.edit', e.id)
     db.commit()
-    return encounter_view(e)
+    return encounter_view(e, db, doctor)
 
 
 @app.post('/api/v1/encounters/{encounter_id}/audio', tags=['Приёмы'], status_code=202)
-async def upload_audio(encounter_id: str, file: UploadFile = File(...), analyze: bool = Form(False), doctor=Depends(current_doctor), db=Depends(db_session)):
-    e = owned(db, Encounter, encounter_id, doctor, True)
+async def upload_audio(encounter_id: str, file: UploadFile = File(...), analyze: bool = Form(False), draft_token: str | None = Form(None), capture_token: str | None = Form(None), doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = db.scalar(select(Encounter).where(Encounter.id == encounter_id).with_for_update())
+    if e and e.doctor_id != doctor.id:
+        raise HTTPException(404, 'Приём не найден')
+    if not e:
+        e = load_draft(db, encounter_id, doctor, draft_token)
+        if db.get(Encounter, encounter_id):
+            raise HTTPException(409, 'Приём уже сохранён. Обновите страницу')
+    capture_allowed(e, capture_token)
     p = db.get(Patient, e.patient_id)
     if not e.recording_consent or not p.recording_consent:
         raise HTTPException(403, 'Пациент не согласился на запись')
@@ -276,7 +366,7 @@ async def upload_audio(encounter_id: str, file: UploadFile = File(...), analyze:
         raise HTTPException(503, 'Настройте локальное распознавание или доверенный ASR-сервер. Отправка исходного аудио в облако заблокирована.')
     if settings().asr_provider == 'openai':
         if not p.data.get('openai_audio_consent'):
-            raise HTTPException(403, 'Нужно отдельное согласие пациента на передачу исходной записи в OpenAI. Укажите его в карте пациента.')
+            raise HTTPException(403, 'В карте пациента нужно согласие на запись и обработку данных, включая передачу исходной записи в OpenAI.')
         if not settings().openai_api_key.strip():
             raise HTTPException(503, 'Добавьте OPENAI_API_KEY на сервере и перезапустите API и worker.')
     if analyze and settings().llm_is_cloud and not p.cloud_consent:
@@ -291,6 +381,15 @@ async def upload_audio(encounter_id: str, file: UploadFile = File(...), analyze:
             raise HTTPException(413, 'Запись слишком большая')
     if len(data) < 32:
         raise HTTPException(422, 'Запись пуста')
+    if not await run_in_threadpool(audio_signature_valid, data, mime):
+        raise HTTPException(422, 'Файл не содержит поддерживаемую аудиозапись')
+    capture_allowed(e, capture_token)
+    claim_capture(db, e, capture_token)
+    # Приём создаётся только после проверки файла и всех согласий.
+    if not inspect(e).persistent:
+        db.add(e)
+        db.flush()
+        audit(db, doctor.id, 'encounter.create', e.id)
     folder = Path(settings().audio_dir)
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = folder / (uid() + '.enc')
@@ -303,6 +402,99 @@ async def upload_audio(encounter_id: str, file: UploadFile = File(...), analyze:
         raise
 
 
+def lifecycle_encounter(db, encounter_id, doctor, body, check_version=True):
+    e = db.scalar(select(Encounter).where(Encounter.id == encounter_id).with_for_update())
+    if not e:
+        draft = load_draft(db, encounter_id, doctor, body.draft_token)
+        # Другой запрос мог сохранить приём, пока мы ждали блокировку пациента.
+        e = db.scalar(select(Encounter).where(Encounter.id == encounter_id).with_for_update())
+        if e is None:
+            return draft
+    if e.doctor_id != doctor.id:
+        raise HTTPException(404, 'Приём не найден')
+    if check_version and body.version is not None and e.version != body.version:
+        raise HTTPException(409, 'Приём изменился. Обновите страницу')
+    return e
+
+
+def close_encounter(e):
+    if e.ended_at is None:
+        stamp = now()
+        if e.paused_at:
+            e.paused_seconds += max(0, stamp - e.paused_at)
+        e.paused_at, e.ended_at = None, stamp
+
+
+@app.post('/api/v1/encounters/{encounter_id}/capture-lease', tags=['Приёмы'])
+def capture_lease(encounter_id: str, body: LifecycleAction, doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = lifecycle_encounter(db, encounter_id, doctor, body)
+    capture_allowed(e)
+    if now() >= e.recording_deadline:
+        raise HTTPException(403, 'Окно голосовой записи истекло')
+    if not db.get(Patient, e.patient_id).recording_consent:
+        raise HTTPException(403, 'Нужно согласие пациента на запись')
+    return {'capture_token': seal({'kind': 'capture', 'id': e.id, 'doctor_id': doctor.id, 'deadline': e.recording_deadline, 'issued_at': now(), 'nonce': uid()}),
+            'recording_deadline': e.recording_deadline, 'server_time': now()}
+
+
+@app.post('/api/v1/encounters/{encounter_id}/pause', tags=['Приёмы'])
+def pause_encounter(encounter_id: str, body: LifecycleAction, doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = lifecycle_encounter(db, encounter_id, doctor, body)
+    if e.ended_at:
+        raise HTTPException(409, 'Приём завершён')
+    if not e.paused_at:
+        e.paused_at = now()
+    if not inspect(e).persistent:
+        rotate_draft(db, e)
+    audit(db, doctor.id, 'encounter.pause', e.id)
+    db.commit()
+    return encounter_view(e, db, doctor)
+
+
+@app.post('/api/v1/encounters/{encounter_id}/resume', tags=['Приёмы'])
+def resume_encounter(encounter_id: str, body: LifecycleAction, doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = lifecycle_encounter(db, encounter_id, doctor, body)
+    if e.ended_at:
+        raise HTTPException(409, 'Приём завершён. Создайте новый приём')
+    if e.paused_at:
+        e.paused_seconds += max(0, now() - e.paused_at)
+    e.paused_at = None
+    e.recording_consent = db.get(Patient, e.patient_id).recording_consent
+    if not inspect(e).persistent:
+        rotate_draft(db, e)
+    audit(db, doctor.id, 'encounter.resume', e.id)
+    db.commit()
+    return encounter_view(e, db, doctor)
+
+
+@app.post('/api/v1/encounters/{encounter_id}/finish', tags=['Приёмы'])
+def finish_encounter(encounter_id: str, body: LifecycleAction, doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = lifecycle_encounter(db, encounter_id, doctor, body, check_version=False)
+    close_encounter(e)
+    discarded = not inspect(e).persistent
+    if discarded:
+        audit(db, doctor.id, 'draft.finished', e.id)
+    else:
+        snapshot(db, e, 'finish')
+    audit(db, doctor.id, 'encounter.finish', e.id)
+    db.commit()
+    return {**encounter_view(e, db, doctor), 'discarded': discarded}
+
+
+@app.get('/api/v1/encounters/{encounter_id}/pdf', tags=['Приёмы'])
+def consultation_pdf(encounter_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
+    from .consultation_pdf import build_consultation_pdf
+    e = db.get(Encounter, encounter_id)
+    if not e or (e.doctor_id != doctor.id and e.status not in ('approved', 'exported')):
+        raise HTTPException(404, 'Лист консультации не найден')
+    patient = db.get(Patient, e.patient_id)
+    physician = db.get(Doctor, e.doctor_id)
+    document = build_consultation_pdf(encounter_view(e, db, doctor), patient_view(patient), physician.profile)
+    audit(db, doctor.id, 'encounter.pdf', e.id)
+    db.commit()
+    return Response(document, media_type='application/pdf', headers={'Content-Disposition': f'inline; filename="consultation-{e.id}.pdf"'})
+
+
 @app.post('/api/v1/encounters/{encounter_id}/privacy-review', tags=['Приёмы'])
 def privacy_review(encounter_id: str, body: PrivacyReview, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = owned(db, Encounter, encounter_id, doctor, True)
@@ -312,7 +504,7 @@ def privacy_review(encounter_id: str, body: PrivacyReview, doctor=Depends(curren
     e.version += 1
     audit(db, doctor.id, 'privacy.review', e.id)
     db.commit()
-    return encounter_view(e)
+    return encounter_view(e, db, doctor)
 
 
 def masked_audio_path(db, e):
@@ -327,10 +519,52 @@ def masked_audio_path(db, e):
 @app.get('/api/v1/encounters/{encounter_id}/recordings', tags=['Приёмы'])
 def recordings(encounter_id: str, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = owned(db, Encounter, encounter_id, doctor)
-    jobs = db.scalars(select(Job).where(Job.encounter_id == e.id, Job.kind == 'transcribe').order_by(Job.created_at.desc()))
-    return [{'id': j.id, 'created_at': j.created_at, 'state': j.state, 'bytes': j.payload.get('bytes'),
-             'available': bool(j.payload.get('audio') and (Path(settings().audio_dir) / Path(j.payload['audio']).name).is_file()),
-             'transcript': j.payload.get('result_transcript', []), 'speaker_roles': j.payload.get('result_roles', {})} for j in jobs]
+    jobs = list(db.scalars(select(Job).where(Job.encounter_id == e.id, Job.kind == 'transcribe').order_by(Job.created_at.desc(), Job.id.desc())))
+    result = []
+    for original in jobs:
+        if original.payload.get('recording_id'):
+            continue
+        attempts = [j for j in jobs if j.id == original.id or j.payload.get('recording_id') == original.id]
+        # Версия задания различает повторные попытки даже внутри одной секунды.
+        latest = max(attempts, key=lambda j: (j.payload.get('attempt', 0), j.created_at, j.id))
+        completed = next((j for j in sorted(attempts, key=lambda j: (j.payload.get('attempt', 0), j.created_at), reverse=True)
+                          if j.payload.get('result_transcript')), original)
+        result.append({'id': original.id, 'created_at': original.created_at, 'state': latest.state, 'error': latest.error,
+             'bytes': original.payload.get('bytes'), 'attempts': len(attempts),
+             'available': bool(original.payload.get('audio') and (Path(settings().audio_dir) / Path(original.payload['audio']).name).is_file()),
+             'transcript': completed.payload.get('result_transcript', []), 'speaker_roles': completed.payload.get('result_roles', {})})
+    return result
+
+
+@app.post('/api/v1/encounters/{encounter_id}/recordings/{recording_id}/transcribe', tags=['Приёмы'], status_code=202)
+def retranscribe_recording(encounter_id: str, recording_id: str, body: RecordingTranscribe, doctor=Depends(current_doctor), db=Depends(db_session)):
+    e = owned(db, Encounter, encounter_id, doctor, True)
+    verify_version(e, body.version)
+    recording = db.get(Job, recording_id)
+    if not recording or recording.encounter_id != e.id or recording.kind != 'transcribe':
+        raise HTTPException(404, 'Запись не найдена')
+    if recording.payload.get('recording_id'):
+        recording = db.get(Job, recording.payload['recording_id'])
+    name = recording.payload.get('audio')
+    if not name or not (Path(settings().audio_dir) / Path(name).name).is_file():
+        raise HTTPException(410, 'Исходная запись недоступна')
+    p = db.get(Patient, e.patient_id)
+    if not e.recording_consent or not p.recording_consent:
+        raise HTTPException(403, 'Согласие пациента на обработку записи отозвано')
+    if settings().asr_provider in ('disabled', 'cloud'):
+        raise HTTPException(503, 'Настройте распознавание речи на сервере')
+    if settings().asr_provider == 'openai':
+        if not p.data.get('openai_audio_consent'):
+            raise HTTPException(403, 'Нужно согласие пациента на обработку исходной записи в OpenAI')
+        if not settings().openai_api_key.strip():
+            raise HTTPException(503, 'Добавьте OPENAI_API_KEY на сервере')
+    if body.analyze and settings().llm_is_cloud and not p.cloud_consent:
+        raise HTTPException(403, 'Нужно согласие пациента на обработку обезличенного текста облачной LLM')
+    previous = list(db.scalars(select(Job).where(Job.encounter_id == e.id, Job.kind == 'transcribe')))
+    attempt = max((j.payload.get('attempt', 0) for j in previous if j.id == recording.id or j.payload.get('recording_id') == recording.id), default=0) + 1
+    return queue(db, e, 'transcribe', {'audio': Path(name).name, 'asr_provider': settings().asr_provider,
+        'mime': recording.payload.get('mime', 'audio/webm'), 'bytes': recording.payload.get('bytes'),
+        'analyze': body.analyze, 'stage': 'queued', 'recording_id': recording.id, 'attempt': attempt})
 
 
 @app.get('/api/v1/encounters/{encounter_id}/recordings/{recording_id}/audio', tags=['Приёмы'])
@@ -409,12 +643,13 @@ def approve(encounter_id: str, body: Version, doctor=Depends(current_doctor), db
     verify_version(e, body.version)
     if not any(isinstance(e.fields.get(k), str) and e.fields[k].strip() for k in ('complaints', 'anamnesis', 'examination', 'diagnosis', 'recommendations', 'ai_conclusion')):
         raise HTTPException(422, 'Заполните лист консультации')
+    close_encounter(e)
     e.status, e.reviewed_at = 'approved', now()
     e.version += 1
     snapshot(db, e, 'approve')
     audit(db, doctor.id, 'encounter.approve', e.id)
     db.commit()
-    return encounter_view(e)
+    return encounter_view(e, db, doctor)
 
 
 @app.get('/api/v1/jobs/{job_id}', tags=['Приёмы'])
@@ -428,7 +663,7 @@ def job_status(job_id: str, doctor=Depends(current_doctor), db=Depends(db_sessio
 
 def export_view(db, e):
     p = db.get(Patient, e.patient_id)
-    return {'schema_version': '1.1', 'encounter': encounter_view(e), 'patient': patient_view(p), 'doctor_id': e.doctor_id,
+    return {'schema_version': '1.1', 'encounter': encounter_view(e, db), 'patient': patient_view(p), 'doctor_id': e.doctor_id,
             'recordings_url': f'/api/v1/integration/encounters/{e.id}/recordings'}
 
 
@@ -458,7 +693,10 @@ def send_mis(encounter_id: str, body: Version, doctor=Depends(current_doctor), d
         raise HTTPException(409, 'Сначала подтвердите лист консультации')
     if not settings().mis_url:
         raise HTTPException(503, 'MIS_URL не настроен. Доступна интеграция через API чтения')
-    return queue(db, e, 'export')
+    close_encounter(e)
+    old_jobs = db.scalars(select(Job).where(Job.encounter_id == e.id, Job.kind == 'export').order_by(Job.created_at.desc()))
+    previous_export = next((j.payload.get('export') for j in old_jobs if j.payload.get('version') == e.version and j.payload.get('export')), None)
+    return queue(db, e, 'export', {'export': previous_export or export_view(db, e)})
 
 
 @app.post('/api/v1/integration-key', tags=['МИС'])

@@ -1,3 +1,4 @@
+from audio_fixture import audio_bytes
 from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
@@ -17,7 +18,11 @@ def patient(client, consent=True):
 
 
 def encounter(client, p):
-    return client.post(f'/api/v1/patients/{p["id"]}/encounters').json()
+    draft = client.post(f'/api/v1/patients/{p["id"]}/encounters').json()
+    result = client.put(f'/api/v1/encounters/{draft["id"]}', json={
+        'draft_token': draft['draft_token'], 'fields': {'complaints': 'Синтетическая запись для проверки'}})
+    assert result.status_code == 200, result.text
+    return result.json()
 
 
 def test_manual_consultation_approval_and_integration(client, doctor):
@@ -46,15 +51,18 @@ def test_manual_consultation_approval_and_integration(client, doctor):
 
 def test_recording_consent_enforced_on_server(client, doctor):
     e = encounter(client, patient(client, False))
-    r = client.post(f'/api/v1/encounters/{e["id"]}/audio', files={'file': ('a.webm', b'a' * 100, 'audio/webm')})
+    r = client.post(f'/api/v1/encounters/{e["id"]}/audio', files={'file': ('a.wav', audio_bytes(), 'audio/wav')})
     assert r.status_code == 403
 
 
-def test_doctor_cannot_access_another_doctors_patient(client, doctor):
+def test_shared_patient_is_accessible_but_drafts_are_private(client, doctor):
     p = patient(client)
+    e = encounter(client, p)
     other = TestClient(app, headers={'X-Medhub-Request': '1'})
     other.post('/api/v1/auth/register', json={'name': 'Другой Врач', 'email': 'other@example.test', 'iin': '000000000002', 'password': 'Very-safe-test-123'})
-    assert other.get(f'/api/v1/patients/{p["id"]}').status_code == 404
+    assert other.get(f'/api/v1/patients/{p["id"]}').status_code == 200
+    assert other.get(f'/api/v1/encounters/{e["id"]}').status_code == 404
+    assert len(other.get('/api/v1/patients?q=Алия').json()) == 1
     assert other.get('/api/v1/patients').json() == []
 
 
@@ -96,7 +104,7 @@ def test_worker_transcription_and_generation(client, doctor, monkeypatch):
     settings().asr_provider = 'self_hosted'
     monkeypatch.setattr('app.worker.transcribe', lambda path: [{'speaker': 'SPEAKER_00', 'start': 0, 'end': 4, 'text': 'Меня зовут Алия. Тестовая жалоба.'}])
     monkeypatch.setattr('app.worker.mask_audio', lambda path, segments, indices: b'masked-audio-test')
-    result = client.post(f'/api/v1/encounters/{e["id"]}/audio', files={'file': ('a.webm', b'a' * 100, 'audio/webm')})
+    result = client.post(f'/api/v1/encounters/{e["id"]}/audio', files={'file': ('a.wav', audio_bytes(), 'audio/wav')})
     assert result.status_code == 202, result.text
     assert process_one()
     e = client.get(f'/api/v1/encounters/{e["id"]}').json()
@@ -119,7 +127,7 @@ def test_consent_revoked_while_job_queued(client, doctor, monkeypatch):
     p = patient(client)
     e = encounter(client, p)
     settings().asr_provider = 'self_hosted'
-    result = client.post(f'/api/v1/encounters/{e["id"]}/audio', files={'file': ('a.webm', b'a' * 100, 'audio/webm')}).json()
+    result = client.post(f'/api/v1/encounters/{e["id"]}/audio', files={'file': ('a.wav', audio_bytes(), 'audio/wav')}).json()
     client.patch(f'/api/v1/patients/{p["id"]}/consent', json={'recording_consent': False, 'cloud_consent': False})
     monkeypatch.setattr('app.worker.transcribe', lambda path: (_ for _ in ()).throw(AssertionError('Must not call ASR')))
     process_one()

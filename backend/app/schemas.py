@@ -22,7 +22,7 @@ class Login(Strict):
 
 class PatientInput(Strict):
     name: str = Field(min_length=2, max_length=150)
-    iin: str = Field(pattern=r'^\d{12}$')
+    iin: str = Field(pattern=r'^[0-9]{12}$')
     birth_date: date
     phone: str = Field(default='', max_length=30)
     sex: Literal['female', 'male', 'unknown'] = 'unknown'
@@ -31,6 +31,13 @@ class PatientInput(Strict):
     cloud_consent: bool = False
     cloud_audio_consent: bool = False
     openai_audio_consent: bool = False
+    processing_consent: bool | None = None
+
+    @model_validator(mode='after')
+    def unified_consent(self):
+        if self.processing_consent is not None:
+            self.recording_consent = self.cloud_consent = self.cloud_audio_consent = self.openai_audio_consent = self.processing_consent
+        return self
 
     @field_validator('birth_date')
     @classmethod
@@ -41,10 +48,19 @@ class PatientInput(Strict):
 
 
 class Consent(Strict):
-    recording_consent: bool
-    cloud_consent: bool
+    recording_consent: bool = False
+    cloud_consent: bool = False
     cloud_audio_consent: bool = False
     openai_audio_consent: bool = False
+    processing_consent: bool | None = None
+
+    @model_validator(mode='after')
+    def unified_consent(self):
+        if self.processing_consent is None and not {'recording_consent', 'cloud_consent'} <= self.model_fields_set:
+            raise ValueError('Укажите processing_consent или оба прежних согласия')
+        if self.processing_consent is not None:
+            self.recording_consent = self.cloud_consent = self.cloud_audio_consent = self.openai_audio_consent = self.processing_consent
+        return self
 
 
 class Segment(Strict):
@@ -109,6 +125,25 @@ class EncounterPatch(Strict):
     fields: Consultation
     speaker_roles: dict[str, Literal['doctor', 'patient', 'nurse', 'unknown']] = Field(default_factory=dict, max_length=10)
     transcript: list[Segment] | None = Field(default=None, max_length=2000)
+    previous_encounter_id: str | None = Field(default=None, max_length=36)
+
+
+class EncounterStart(Strict):
+    visit_type: Literal['primary', 'repeat'] = 'primary'
+    previous_encounter_id: str | None = Field(default=None, max_length=36)
+
+
+class EncounterCreate(Strict):
+    draft_token: str = Field(min_length=20, max_length=5000)
+    fields: Consultation
+    speaker_roles: dict[str, Literal['doctor', 'patient', 'nurse', 'unknown']] = Field(default_factory=dict, max_length=10)
+    transcript: list[Segment] = Field(default_factory=list, max_length=2000)
+    previous_encounter_id: str | None = Field(default=None, max_length=36)
+
+
+class LifecycleAction(Strict):
+    version: int | None = Field(default=None, ge=1)
+    draft_token: str | None = Field(default=None, max_length=5000)
 
 
 class PrivacyReview(Strict):
@@ -122,6 +157,10 @@ class Version(Strict):
 
 class CloudAudio(Version):
     audio_reviewed: bool
+
+
+class RecordingTranscribe(Version):
+    analyze: bool = True
 
 
 class MuteAudio(Version):
