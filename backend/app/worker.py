@@ -13,6 +13,7 @@ from .providers import transcribe, generate, cloud_transcribe, ProviderError
 from .audio_privacy import mask_audio
 from .clinical import ai_notice
 from .history import snapshot
+from .consent import signature_allows_processing
 
 log = logging.getLogger('medhub.worker')
 
@@ -33,6 +34,8 @@ def process_one():
         with SessionLocal() as db:
             e = db.get(Encounter, encounter_id)
             p = db.get(Patient, e.patient_id)
+            if kind != 'export' and not signature_allows_processing(p, db):
+                raise ProviderError('Требуется действующее согласие с ЭЦП пациента')
             if e.version != payload['version']:
                 raise ProviderError('Приём изменился. Запустите обработку повторно.')
             if kind == 'transcribe' and (not p.recording_consent or not e.recording_consent):
@@ -79,6 +82,8 @@ def process_one():
                 try:
                     with SessionLocal() as progress:
                         current_patient = progress.get(Patient, e.patient_id)
+                        if not signature_allows_processing(current_patient, progress):
+                            raise ProviderError('Согласие с ЭЦП пациента отозвано. Расшифровка сохранена.')
                         if not current_patient.recording_consent or (settings().llm_is_cloud and (
                             not current_patient.cloud_consent or not (settings().llm_provider == 'openai' and current_patient.data.get('openai_audio_consent')))):
                             raise ProviderError('Для автоматического анализа нужны согласия на OpenAI и облачный текст. Расшифровка сохранена.')
@@ -113,6 +118,8 @@ def process_one():
         with SessionLocal() as db:
             e = db.scalar(select(Encounter).where(Encounter.id == encounter_id).with_for_update())
             p = db.get(Patient, e.patient_id)
+            if kind != 'export' and not signature_allows_processing(p, db):
+                raise ProviderError('Согласие с ЭЦП пациента отозвано. Результат удалён.')
             job = db.get(Job, job_id)
             if e.version != payload['version']:
                 raise ProviderError('Приём был изменён во время обработки')

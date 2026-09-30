@@ -32,6 +32,7 @@ def database():
     settings().llm_is_cloud = False
     settings().asr_provider = 'disabled'
     settings().sigex_enabled = False
+    settings().consent_signature_required = False
     settings().mis_url = ''
     yield
 

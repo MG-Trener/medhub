@@ -21,12 +21,14 @@ from .privacy import redact_segments
 from .clinical import ai_notice
 from .openai_asr import OPENAI_ASR_MODEL
 from .identity import router as identity_router
+from .consent import router as consent_router, consent_summary, revoke_patient_consents, signature_allows_processing
 from .diagnoses import catalog, search_diagnoses, by_code
 from .history import snapshot
 from .lifecycle import shared_patient, meaningful, empty_encounter, draft_token as sign_draft, load_draft, rotate_draft, previous_encounter, capture_allowed, claim_capture, seal, audio_signature_valid
 
 app = FastAPI(title='Smart Consult API', version='0.2.0', docs_url='/api/docs', openapi_url='/api/openapi.json')
 app.include_router(identity_router)
+app.include_router(consent_router)
 rate_buckets = defaultdict(deque)
 rate_lock = threading.Lock()
 
@@ -71,7 +73,14 @@ async def conflict(request, exc):
 
 def patient_view(p):
     return {'id': p.id, **p.data, 'external_id': p.external_id, 'recording_consent': p.recording_consent, 'cloud_consent': p.cloud_consent,
-            'processing_consent': bool(p.recording_consent and p.cloud_consent and p.data.get('cloud_audio_consent') and p.data.get('openai_audio_consent')), 'created_at': p.created_at}
+            'processing_consent': bool(p.recording_consent and p.cloud_consent and p.data.get('cloud_audio_consent') and p.data.get('openai_audio_consent')),
+            'consent_signature': consent_summary(p),
+            'ai_processing_allowed': bool(p.recording_consent and signature_allows_processing(p)), 'created_at': p.created_at}
+
+
+def require_patient_signature(db, patient):
+    if not signature_allows_processing(patient, db):
+        raise HTTPException(403, 'Сначала подпишите согласие личной ЭЦП пациента в его карточке')
 
 
 def encounter_view(e, db=None, doctor=None):
@@ -92,7 +101,7 @@ def encounter_view(e, db=None, doctor=None):
         result['physician_name'] = result['doctor_name'] = physician.profile.get('name', '') if physician else ''
         result['patient'] = patient_view(patient)
         result['patient_name'], result['patient_iin'] = patient.data.get('name', ''), patient.data.get('iin', '')
-        result['recording_allowed'] = result['recording_allowed'] and patient.recording_consent
+        result['recording_allowed'] = result['recording_allowed'] and patient.recording_consent and signature_allows_processing(patient, db)
     if result['read_only']:
         result['transcript'], result['redacted_transcript'], result['speaker_roles'] = [], [], {}
         result['fields']['sources'] = []
@@ -184,7 +193,8 @@ def configuration(doctor=Depends(current_doctor)):
             'llm_provider': s.llm_provider, 'llm_model': s.llm_model, 'llm_is_cloud': s.llm_is_cloud,
             'llm_configured': bool(s.openai_api_key.strip()) if s.llm_provider == 'openai' else s.llm_provider != 'disabled',
             'diarization': s.asr_provider == 'openai' or bool(s.diarization_model), 'mis_configured': bool(s.mis_url),
-            'cloud_asr_configured': bool(s.cloud_asr_url), 'audio_retention_hours': s.audio_retention_hours}
+            'cloud_asr_configured': bool(s.cloud_asr_url), 'audio_retention_hours': s.audio_retention_hours,
+            'consent_signature_required': s.consent_signature_required, 'sigex_enabled': s.sigex_enabled}
 
 
 @app.get('/api/v1/patients', tags=['Пациенты'])
@@ -209,6 +219,8 @@ def patients(q: str = Query('', max_length=150), offset: int = Query(0, ge=0), l
 
 @app.post('/api/v1/patients', tags=['Пациенты'], status_code=201)
 def create_patient(body: PatientInput, doctor=Depends(current_doctor), db=Depends(db_session)):
+    if settings().consent_signature_required and any((body.recording_consent, body.cloud_consent, body.cloud_audio_consent, body.openai_audio_consent)):
+        raise HTTPException(403, 'Создайте карточку пациента, затем подпишите согласие его личной ЭЦП')
     if db.scalar(select(Patient.id).where(Patient.iin_hash == digest(body.iin)).limit(1)):
         raise HTTPException(409, 'Пациент с таким ИИН уже существует. Найдите его в общем поиске')
     p = Patient(doctor_id=doctor.id, iin_hash=digest(body.iin), search_tokens=search_tokens(body.name), external_id=body.external_id,
@@ -237,6 +249,10 @@ def get_patient(patient_id: str, doctor=Depends(current_doctor), db=Depends(db_s
 @app.patch('/api/v1/patients/{patient_id}/consent', tags=['Пациенты'])
 def consent(patient_id: str, body: Consent, doctor=Depends(current_doctor), db=Depends(db_session)):
     p = shared_patient(db, patient_id, True)
+    if any((body.recording_consent, body.cloud_consent, body.cloud_audio_consent, body.openai_audio_consent)):
+        require_patient_signature(db, p)
+    if not all((body.recording_consent, body.cloud_consent, body.cloud_audio_consent, body.openai_audio_consent)):
+        revoke_patient_consents(db, p, doctor.id)
     p.recording_consent, p.cloud_consent = body.recording_consent, body.cloud_consent
     p.data = {**p.data, 'cloud_audio_consent': body.cloud_audio_consent, 'openai_audio_consent': body.openai_audio_consent,
               'processing_consent': bool(body.processing_consent)}
@@ -358,6 +374,7 @@ async def upload_audio(encounter_id: str, file: UploadFile = File(...), analyze:
             raise HTTPException(409, 'Приём уже сохранён. Обновите страницу')
     capture_allowed(e, capture_token)
     p = db.get(Patient, e.patient_id)
+    require_patient_signature(db, p)
     if not e.recording_consent or not p.recording_consent:
         raise HTTPException(403, 'Пациент не согласился на запись')
     if e.status == 'processing':
@@ -428,6 +445,7 @@ def close_encounter(e):
 @app.post('/api/v1/encounters/{encounter_id}/capture-lease', tags=['Приёмы'])
 def capture_lease(encounter_id: str, body: LifecycleAction, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = lifecycle_encounter(db, encounter_id, doctor, body)
+    require_patient_signature(db, db.get(Patient, e.patient_id))
     capture_allowed(e)
     if now() >= e.recording_deadline:
         raise HTTPException(403, 'Окно голосовой записи истекло')
@@ -549,6 +567,7 @@ def retranscribe_recording(encounter_id: str, recording_id: str, body: Recording
     if not name or not (Path(settings().audio_dir) / Path(name).name).is_file():
         raise HTTPException(410, 'Исходная запись недоступна')
     p = db.get(Patient, e.patient_id)
+    require_patient_signature(db, p)
     if not e.recording_consent or not p.recording_consent:
         raise HTTPException(403, 'Согласие пациента на обработку записи отозвано')
     if settings().asr_provider in ('disabled', 'cloud'):
@@ -605,6 +624,7 @@ def listen_masked(encounter_id: str, doctor=Depends(current_doctor), db=Depends(
 def mute(encounter_id: str, body: MuteAudio, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = owned(db, Encounter, encounter_id, doctor, True)
     verify_version(e, body.version)
+    require_patient_signature(db, db.get(Patient, e.patient_id))
     if not e.recording_consent or not db.get(Patient, e.patient_id).recording_consent:
         raise HTTPException(403, 'Согласие на запись отозвано')
     if any(i < 0 or i >= len(e.transcript) for i in body.segment_indices):
@@ -617,6 +637,7 @@ def cloud_asr(encounter_id: str, body: CloudAudio, doctor=Depends(current_doctor
     e = owned(db, Encounter, encounter_id, doctor, True)
     verify_version(e, body.version)
     p = db.get(Patient, e.patient_id)
+    require_patient_signature(db, p)
     if not p.recording_consent or not e.recording_consent or not p.data.get('cloud_audio_consent') or not e.privacy_reviewed or not body.audio_reviewed:
         raise HTTPException(403, 'Нужны согласия пациента, проверка текста и прослушивание обезличенного аудио врачом')
     if not settings().cloud_asr_url:
@@ -631,6 +652,7 @@ def generate(encounter_id: str, body: Version, doctor=Depends(current_doctor), d
     if not e.transcript:
         raise HTTPException(422, 'Сначала добавьте расшифровку')
     p = db.get(Patient, e.patient_id)
+    require_patient_signature(db, p)
     direct_openai = settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')
     if settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not direct_openai)):
         raise HTTPException(403, 'Для облачной LLM нужны согласие пациента и проверка маскирования врачом')

@@ -69,3 +69,7 @@
 ## 2026-09-30 14:33:01 +05:00 — Добавлены зашифрованный архив согласий и бланк пациента
 
 Изменены: `backend/app/consent_document.py`, `backend/app/db.py`, `backend/migrations/versions/0003_patient_consent_signatures.py`.
+
+## 2026-09-30 14:33:28 +05:00 — Реализованы проверка ЭЦП пациента через SIGEX и отзыв согласия
+
+Изменены: `.env.example`, `backend/app/config.py`, `backend/app/consent.py`, `backend/app/consent_sigex.py`, `backend/app/main.py`, `backend/app/worker.py`, `backend/tests/conftest.py`, `backend/tests/test_consent_policy.py`, `backend/tests/test_patient_consents.py`.

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     llm_is_cloud: bool = False
     sigex_enabled: bool = True
     sigex_url: str = 'https://sigex.kz'
+    consent_signature_required: bool = False
     mis_url: str = ''
     mis_token: str = ''
 
