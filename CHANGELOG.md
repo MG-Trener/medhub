@@ -133,3 +133,7 @@
 ## 2026-09-30 16:10:41 +05:00 — README по шаблону и напоминание о конфиденциальности перед записью
 
 Изменены: `README.md`, `frontend/src/Consultation.vue`, `frontend/src/consultation.css`.
+
+## 2026-09-30 16:21:50 +05:00 — Подготовлен Windows GPU-узел ASR и экспериментальный профиль LM Studio с проверкой качества
+
+Изменены: `.env.example`, `.gitignore`, `backend/app/config.py`, `backend/app/providers.py`, `backend/tests/test_asr_runtime_profile.py`, `backend/tests/test_providers.py`, `deploy/gpu/README.md`, `deploy/gpu/windows/WINDOWS.md`, `deploy/gpu/windows/check-runtime.py`, `deploy/gpu/windows/requirements.lock`, `deploy/gpu/windows/start-asr.ps1`, `deploy/gpu/windows/start-llm.ps1`, `scripts/download_models.py`, `scripts/evaluate_local_models.py`.

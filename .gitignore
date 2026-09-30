@@ -27,6 +27,7 @@ secrets/
 credentials/
 secrets.*
 credentials.*
+huggingface_token.txt
 *.ppk
 *.pem
 *.key

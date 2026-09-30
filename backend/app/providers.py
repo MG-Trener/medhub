@@ -20,8 +20,11 @@ def whisper():
 def diarizer():
     from pyannote.audio import Pipeline
     import torch
-    pipeline = Pipeline.from_pretrained(settings().diarization_model)
-    pipeline.to(torch.device(settings().asr_device))
+    s = settings()
+    pipeline = Pipeline.from_pretrained(s.diarization_model)
+    pipeline.segmentation_batch_size = s.diarization_batch_size
+    pipeline.embedding_batch_size = s.diarization_batch_size
+    pipeline.to(torch.device(s.asr_device))
     return pipeline
 
 
@@ -56,7 +59,13 @@ def transcribe(path):
     if not chunks:
         raise ProviderError('В записи не найден звук')
     waveform = torch.from_numpy(np.concatenate(chunks, axis=1))
-    output = diarizer()({'waveform': waveform, 'sample_rate': 16000}, min_speakers=1, max_speakers=3)
+    try:
+        output = diarizer()({'waveform': waveform, 'sample_rate': 16000}, min_speakers=1, max_speakers=3)
+    finally:
+        # Release unused PyTorch activation buffers for CTranslate2 and the LLM.
+        # Model weights remain loaded; this does not release CTranslate2 buffers.
+        if s.asr_release_cuda_cache and s.asr_device == 'cuda':
+            torch.cuda.empty_cache()
     annotation = output.exclusive_speaker_diarization
     turns = [(t.start, t.end, label) for t, _, label in annotation.itertracks(yield_label=True)]
     segments, _ = whisper().transcribe(str(path), beam_size=5, vad_filter=True, word_timestamps=True,
@@ -150,7 +159,18 @@ def generate(segments, context=None, target='all'):
             elif s.llm_provider == 'openai_compatible':
                 if s.llm_is_cloud and not s.llm_url.startswith('https://'):
                     raise ProviderError('Облачная LLM требует HTTPS')
-                r = client.post(s.llm_url.rstrip('/') + '/chat/completions', headers={'Authorization': 'Bearer ' + s.llm_api_key}, json={'model': s.llm_model, 'messages': messages, 'response_format': {'type': 'json_object'}})
+                response_format = {'type': s.llm_response_format}
+                if s.llm_response_format == 'json_schema':
+                    response_format['json_schema'] = {'name': 'consultation', 'schema': Extraction.model_json_schema()}
+                headers = {'Authorization': 'Bearer ' + s.llm_api_key} if s.llm_api_key else {}
+                payload = {'model': s.llm_model, 'messages': messages, 'response_format': response_format}
+                if s.llm_reasoning_effort:
+                    payload['reasoning_effort'] = s.llm_reasoning_effort
+                if s.llm_max_tokens:
+                    payload['max_tokens'] = s.llm_max_tokens
+                if s.llm_temperature is not None:
+                    payload['temperature'] = s.llm_temperature
+                r = client.post(s.llm_url.rstrip('/') + '/chat/completions', headers=headers, json=payload)
                 r.raise_for_status()
                 content = r.json()['choices'][0]['message']['content']
             else:
