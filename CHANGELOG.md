@@ -125,3 +125,7 @@
 ## 2026-09-30 16:02:55 +05:00 — Подписание XML при входе и восстановление проверки согласия SIGEX
 
 Изменены: `backend/app/consent.py`, `backend/app/consent_sigex.py`, `backend/app/identity.py`, `backend/app/identity_xml.py`, `backend/app/signing_tasks.py`, `backend/requirements.lock`, `backend/requirements.txt`, `backend/tests/test_identity.py`, `backend/tests/test_identity_xml.py`, `backend/tests/test_patient_consents.py`, `docs/sigex-patient-consent.md`.
+
+## 2026-09-30 16:03:22 +05:00 — Единые способы подписи QR, NCALayer и eGov Mobile с обновлением статуса
+
+Изменены: `frontend/src/Auth.vue`, `frontend/src/ConsentSigning.vue`, `frontend/src/IdentitySigning.vue`, `frontend/src/Settings.vue`, `frontend/src/SigningMethods.vue`, `frontend/src/eds.js`, `frontend/tests/eds.test.js`.

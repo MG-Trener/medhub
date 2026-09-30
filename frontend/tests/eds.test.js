@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { signData, signNonce } from '../src/eds.js'
+import { signData, signNonce, signXml } from '../src/eds.js'
 
 function socketFixture(t) {
   const original = globalThis.WebSocket, sockets = []
@@ -61,4 +61,16 @@ test('закрытие NCALayer отклоняет незавершённое п
   sockets[0].onclose()
   await assert.rejects(result, /Соединение с NCALayer закрыто/)
   assert.equal(sockets[0].closed, 1)
+})
+
+
+test('вход подписывает читаемый XML без base64-декодирования', async t => {
+  const sockets = socketFixture(t), xml = '<authentication><purpose>login</purpose></authentication>'
+  const result = signXml(xml)
+  await Promise.resolve()
+  assert.equal(sockets[0].request.args.format, 'xml')
+  assert.equal(sockets[0].request.args.data, xml)
+  assert.deepEqual(sockets[0].request.args.signingParams, {})
+  sockets[0].respond({ status: true, body: { result: '<signed/>' } })
+  assert.equal(await result, '<signed/>')
 })

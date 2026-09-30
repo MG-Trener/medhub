@@ -1,4 +1,4 @@
-function signCms(data, { signal, document = false } = {}) {
+function signCms(data, { signal, document = false, xml = false } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(new Error('Подписание отменено')); return }
     const socket = new WebSocket('wss://127.0.0.1:13579/')
@@ -17,7 +17,7 @@ function signCms(data, { signal, document = false } = {}) {
     socket.onerror = () => finish(new Error('Запустите NCALayer и разрешите соединение с ним'))
     socket.onclose = () => finish(new Error('Соединение с NCALayer закрыто'))
     socket.onopen = () => socket.send(JSON.stringify({ module: 'kz.gov.pki.knca.basics', method: 'sign', args: {
-      format: 'cms', data, signingParams: { decode: true, encapsulate: true, digested: false, ...(document ? { tsaProfile: {} } : {}) },
+      format: xml ? 'xml' : 'cms', data, signingParams: xml ? {} : { decode: true, encapsulate: true, digested: false, ...(document ? { tsaProfile: {} } : {}) },
       signerParams: { extKeyUsageOids: document ? ['1.3.6.1.5.5.7.3.4', '1.2.398.3.3.4.1.1'] : ['1.2.398.3.3.4.1.1'] }, locale: 'ru'
     } }))
     socket.onmessage = ({ data }) => {
@@ -35,6 +35,7 @@ function signCms(data, { signal, document = false } = {}) {
   })
 }
 
-// Авторизация сохраняет прежний контракт; согласие подписывает точные байты PDF.
+// Вход подписывает XML; согласие — CMS с точными байтами PDF.
 export const signData = (data, options = {}) => signCms(data, { ...options, document: true })
 export const signNonce = nonce => signCms(nonce)
+export const signXml = (data, options = {}) => signCms(data, { ...options, xml: true })

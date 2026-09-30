@@ -1,8 +1,9 @@
 <script setup>
-import { computed, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ShieldCheck, FileText, Fingerprint, QrCode, Clock3, X, Download, History, RefreshCw } from 'lucide-vue-next'
 import { api } from './api'
 import { signData } from './eds'
+import SigningMethods from './SigningMethods.vue'
 
 const props = defineProps({ patient: { type: Object, required: true } })
 const emit = defineEmits(['updated', 'policy'])
@@ -67,13 +68,12 @@ async function poll(token = generation) {
     if (!stillCurrent(token)) return
     error.value = ''; await applyAttempt(result, token)
     if (stillCurrent(token) && pending.value) {
-      if (attempt.value.expires_at && remaining.value === 0) { attempt.value = { ...attempt.value, state: 'expired' }; notice.value = 'Время подписания истекло. Создайте новую попытку.' }
-      else pollTimer = setTimeout(() => poll(token), 3000)
+      pollTimer = setTimeout(() => poll(token), 3000)
     }
   } catch (err) {
     if (!stillCurrent(token)) return
     error.value = err.message
-    if (remaining.value > 0) pollTimer = setTimeout(() => poll(token), 5000)
+    if (pending.value && ![401, 403, 404].includes(err.status)) pollTimer = setTimeout(() => poll(token), 5000)
   }
 }
 async function prepare() {
@@ -86,6 +86,7 @@ async function prepare() {
   finally { if (stillCurrent(token)) busy.value = '' }
 }
 async function start(selectedMethod) {
+  selectedMethod = selectedMethod === 'mobile' ? 'qr' : selectedMethod
   if (!acknowledged.value || openedDocument.value !== document.value?.id) return
   const consentId = document.value.id, token = ++generation
   let signatureSubmitted = false
@@ -159,7 +160,9 @@ watch(() => props.patient.id, async () => {
   try { await load(token, true) } catch (err) { if (stillCurrent(token)) error.value = err.message }
   finally { if (stillCurrent(token)) loading.value = false }
 }, { immediate: true })
-onBeforeUnmount(() => { closeUnsubmittedAttempt(); destroyed = true; generation++; controller?.abort(); stopPolling(); clearInterval(clockTimer) })
+function resumeSigning() { if (globalThis.document.visibilityState === 'visible' && pending.value) poll() }
+onMounted(() => { window.addEventListener('focus', resumeSigning); globalThis.document.addEventListener('visibilitychange', resumeSigning) })
+onBeforeUnmount(() => { window.removeEventListener('focus', resumeSigning); globalThis.document.removeEventListener('visibilitychange', resumeSigning); closeUnsubmittedAttempt(); destroyed = true; generation++; controller?.abort(); stopPolling(); clearInterval(clockTimer) })
 </script>
 
 <template>
@@ -175,8 +178,8 @@ onBeforeUnmount(() => { closeUnsubmittedAttempt(); destroyed = true; generation+
         <div v-else class="consent-manual-box"><label class="check"><input type="checkbox" :checked="recorded" :disabled="!!busy || pending" @change="setManual">Пациент согласен на запись и обработку данных, включая передачу аудио в OpenAI; решение зафиксировано врачом</label><p class="hint">Эта отметка не заменяет электронную подпись пациента. Оформить ЭЦП можно ниже.</p></div>
         <div v-if="!document" class="consent-prepare"><button class="secondary" :disabled="!!busy" @click="prepare"><FileText :size="17"/>{{ busy === 'prepare' ? 'Подготавливаем документ…' : 'Подготовить согласие для подписи' }}</button></div>
         <div v-else class="consent-document"><div class="consent-document-title"><FileText :size="20"/><div><strong>Согласие на запись и обработку данных</strong><span class="hint">Версия {{ document.version }} · {{ date(document.created_at) }}</span></div></div><a class="secondary consent-file-link" :href="pdfUrl(document)" target="_blank" rel="noopener" @click="openedDocument = document.id"><FileText :size="17"/>Открыть точный документ PDF</a><details class="consent-document-hash"><summary>Контрольная сумма документа</summary><code>{{ document.document_sha256 || document.sha256 }}</code></details>
-          <template v-if="!pending"><label class="check consent-acknowledge"><input v-model="acknowledged" type="checkbox" :disabled="openedDocument !== document.id || !!busy">Пациент ознакомился с открытым документом; его можно передать на подпись</label><p v-if="openedDocument !== document.id" class="hint">Сначала откройте PDF и предоставьте документ пациенту.</p><div class="consent-signing-methods"><button class="secondary" :disabled="!!busy || !acknowledged || !policy.sigex_enabled" @click="start('eds')"><Fingerprint :size="21"/><span>ЭЦП пациента<small>Через NCALayer на этом компьютере</small></span></button><button class="primary" :disabled="!!busy || !acknowledged || !policy.sigex_enabled" @click="start('qr')"><QrCode :size="21"/><span>QR / eGov Mobile<small>На телефоне пациента</small></span></button></div></template>
-          <div v-else class="consent-waiting" role="status"><div class="consent-waiting-heading"><Clock3 :size="20"/><strong>{{ attempt.state === 'verifying' || attempt.state === 'signed' ? 'Проверяем подпись пациента' : 'Ожидаем подпись пациента' }}</strong><span v-if="attempt.expires_at" class="consent-expiry">{{ clock }}</span></div><template v-if="attempt.method === 'qr'"><img v-if="attempt.qr_image" class="consent-qr" :src="attempt.qr_image" alt="QR согласия для подписания пациентом в eGov Mobile"><p>Пациент должен открыть eGov Mobile и отсканировать QR. После подписания сервер проверит документ и совпадение ИИН.</p><a v-if="attempt.launch_url" :href="attempt.launch_url" class="text-button">Открыть eGov Mobile на этом устройстве</a></template><p v-else>Выберите ЭЦП пациента в NCALayer. ИИН владельца подписи должен совпадать с ИИН в этой карте.</p><div class="inline-actions"><button class="secondary" :disabled="busy === 'cancel'" @click="cancel"><X :size="16"/>Отменить подписание</button><button class="text-button" :disabled="!!busy" @click="poll()"><RefreshCw :size="16"/>Проверить статус</button></div></div>
+          <template v-if="!pending"><label class="check consent-acknowledge"><input v-model="acknowledged" type="checkbox" :disabled="openedDocument !== document.id || !!busy">Пациент ознакомился с открытым документом; его можно передать на подпись</label><p v-if="openedDocument !== document.id" class="hint">Сначала откройте PDF и предоставьте документ пациенту.</p><SigningMethods :disabled="!!busy || !acknowledged || !policy.sigex_enabled" @select="start"/></template>
+          <div v-else class="consent-waiting" role="status"><div class="consent-waiting-heading"><Clock3 :size="20"/><strong>{{ attempt.state === 'verifying' || attempt.state === 'signed' ? 'Подпись получена — проверяем сертификат' : 'Ожидаем подпись пациента' }}</strong><span v-if="attempt.expires_at" class="consent-expiry">{{ clock }}</span></div><p v-if="attempt.state === 'verifying'">Повторно подписывать не нужно. Статус обновится после проверки SIGEX.</p><template v-else-if="attempt.method === 'qr'"><img v-if="attempt.qr_image" class="consent-qr" :src="attempt.qr_image" alt="QR согласия для подписания пациентом в eGov Mobile"><p>Пациент должен открыть eGov Mobile и отсканировать QR. После подписания сервер проверит документ и совпадение ИИН.</p><a v-if="attempt.launch_url" :href="attempt.launch_url" class="text-button">Открыть eGov Mobile на этом устройстве</a></template><p v-else>Выберите ЭЦП пациента в NCALayer. ИИН владельца подписи должен совпадать с ИИН в этой карте.</p><div class="inline-actions"><button class="secondary" :disabled="busy === 'cancel'" @click="cancel"><X :size="16"/>Отменить подписание</button><button class="text-button" :disabled="!!busy" @click="poll()"><RefreshCw :size="16"/>Проверить статус</button></div></div>
         </div>
         <p v-if="!policy.sigex_enabled" class="hint">Подписание через SIGEX пока не подключено. Обратитесь к администратору.</p>
       </template>
