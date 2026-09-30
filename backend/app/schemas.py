@@ -114,6 +114,8 @@ class Consultation(Strict):
     recommendations: str = Field(default='', max_length=15000)
     follow_up: str = Field(default='', max_length=5000)
     ai_conclusion: str = Field(default='', max_length=15000)
+    ai_test_recommendations: str = Field(default='', max_length=15000)
+    ai_diagnosis_variants: str = Field(default='', max_length=15000)
     sources: list[FieldSource] = Field(default_factory=list, max_length=50)
     diagnosis_suggestions: list[DiagnosisSuggestion] = Field(default_factory=list, max_length=5)
     warnings: list[str] = Field(default_factory=list, max_length=20)

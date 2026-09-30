@@ -11,7 +11,7 @@ from app.schemas import Consultation
 def test_openai_structured_output_and_evidence_validation(monkeypatch):
     monkeypatch.setattr(settings(), 'llm_provider', 'openai')
     monkeypatch.setattr(settings(), 'openai_api_key', 'synthetic-key')
-    fields = Consultation(complaints='Тестовая жалоба', ai_conclusion='Синтетическое заключение',
+    fields = Consultation(complaints='Тестовая жалоба', ai_test_recommendations='Тестовая рекомендация', ai_diagnosis_variants='Тестовый вариант',
         sources=[{'field':'complaints','segments':[0,99]}], reviewed_fields=['complaints'],
         diagnosis_suggestions=[{'code':'j02.9','name':'Неточное имя','reason':'Для проверки'},
                                {'code':'ZZ99','name':'Несуществующий код','reason':'Ошибка'}]).model_dump()

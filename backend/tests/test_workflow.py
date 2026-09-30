@@ -39,11 +39,10 @@ def test_manual_consultation_approval_and_integration(client, doctor):
     assert len(result['items']) == 1
     assert result['items'][0]['encounter']['fields']['complaints'] == 'Тестовая жалоба'
     exported = result['items'][0]['encounter']
-    assert exported['fields']['ai_conclusion'] == fields['ai_conclusion']
-    assert exported['ai_notice']['is_diagnosis'] is False
-    assert exported['ai_notice']['disclaimer'] == AI_CONCLUSION_NOTICE
+    assert 'ai_conclusion' not in exported['fields']
+    assert 'ai_notice' not in exported
     detail = client.get(f'/api/v1/integration/encounters/{e["id"]}', headers=headers).json()
-    assert detail['encounter']['ai_notice'] == exported['ai_notice']
+    assert 'ai_notice' not in detail['encounter']
     assert client.get(f'/api/v1/integration/encounters/{e["id"]}').status_code == 401
     client.delete('/api/v1/integration-key')
     assert client.get('/api/v1/integration/encounters', headers=headers).status_code == 401
@@ -117,7 +116,7 @@ def test_worker_transcription_and_generation(client, doctor, monkeypatch):
     assert process_one()
     e = client.get(f'/api/v1/encounters/{e["id"]}').json()
     assert e['fields']['complaints'] == 'Тестовая жалоба' and e['speaker_roles']['SPEAKER_00'] == 'patient'
-    assert e['fields']['diagnosis'] == 'Запись врача'
+    assert e['fields']['diagnosis'] == 'Запись врача\n\nОтвет модели'
     assert e['fields']['ai_conclusion'] == 'Описаны жалобы; требуются уточнения.'
     assert e['ai_notice']['disclaimer'] == AI_CONCLUSION_NOTICE
     assert e['reviewed_at'] is None and e['status'] == 'ready'
@@ -190,7 +189,7 @@ def test_export_only_after_review_and_retry_keeps_idempotency(client, doctor, mo
         clock[0] += 60
     assert deliveries[0]['headers']['Idempotency-Key'] == deliveries[1]['headers']['Idempotency-Key']
     assert deliveries[0]['json'] == deliveries[1]['json']
-    assert deliveries[0]['json']['encounter']['ai_notice']['disclaimer'] == AI_CONCLUSION_NOTICE
+    assert 'ai_notice' not in deliveries[0]['json']['encounter']
     assert e['sent_at'] == e['started_at'] + 60
 
 

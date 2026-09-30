@@ -18,7 +18,7 @@ from .db import Doctor, Session, ApiKey, Patient, PatientIdentity, Encounter, Jo
 from .security import current_doctor, integration_doctor, digest, passwords, search_tokens, registration_allowed, issue_session, owned
 from .schemas import Register, Login, PatientInput, Consent, EncounterPatch, EncounterCreate, EncounterStart, LifecycleAction, Consultation, PrivacyReview, Version, CloudAudio, RecordingTranscribe, MuteAudio
 from .privacy import redact_segments
-from .clinical import ai_notice
+from .clinical import ai_notice, export_without_ai
 from .openai_asr import OPENAI_ASR_MODEL
 from .identity import router as identity_router
 from .consent import router as consent_router, consent_summary, revoke_patient_consents, signature_allows_processing
@@ -663,7 +663,7 @@ def generate(encounter_id: str, body: Version, doctor=Depends(current_doctor), d
 def approve(encounter_id: str, body: Version, doctor=Depends(current_doctor), db=Depends(db_session)):
     e = owned(db, Encounter, encounter_id, doctor, True)
     verify_version(e, body.version)
-    if not any(isinstance(e.fields.get(k), str) and e.fields[k].strip() for k in ('complaints', 'anamnesis', 'examination', 'diagnosis', 'recommendations', 'ai_conclusion')):
+    if not any(isinstance(e.fields.get(k), str) and e.fields[k].strip() for k in ('complaints', 'anamnesis', 'examination', 'diagnosis', 'recommendations')):
         raise HTTPException(422, 'Заполните лист консультации')
     close_encounter(e)
     e.status, e.reviewed_at = 'approved', now()
@@ -689,8 +689,8 @@ def export_view(db, e):
     # Время интерфейса меняется при каждом GET и нарушает идемпотентность МИС.
     for key in ('server_time', 'recording_allowed', 'persisted', 'read_only', 'can_edit', 'capture_deadline'):
         encounter.pop(key, None)
-    return {'schema_version': '1.1', 'encounter': encounter, 'patient': patient_view(p), 'doctor_id': e.doctor_id,
-            'recordings_url': f'/api/v1/integration/encounters/{e.id}/recordings'}
+    return export_without_ai({'schema_version': '1.1', 'encounter': encounter, 'patient': patient_view(p), 'doctor_id': e.doctor_id,
+            'recordings_url': f'/api/v1/integration/encounters/{e.id}/recordings'})
 
 
 @app.get('/api/v1/integration/encounters/{encounter_id}/recordings', tags=['МИС'])

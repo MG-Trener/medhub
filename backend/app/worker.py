@@ -11,7 +11,7 @@ from .db import SessionLocal, Job, Encounter, Patient, audit, now
 from .privacy import redact_segments
 from .providers import transcribe, generate, cloud_transcribe, ProviderError
 from .audio_privacy import mask_audio
-from .clinical import ai_notice
+from .clinical import export_without_ai, merge_generated_fields
 from .history import snapshot
 from .consent import signature_allows_processing
 
@@ -57,8 +57,7 @@ def process_one():
             patient_data = p.data
             export = {'schema_version': '1.1', 'encounter': {k: getattr(e, k) for k in ('id', 'patient_id', 'fields', 'transcript', 'speaker_roles', 'reviewed_at', 'version', 'created_at', 'started_at', 'ended_at', 'paused_seconds', 'sent_at', 'previous_encounter_id')}, 'patient': {'id': p.id, 'external_id': p.external_id, **p.data}, 'doctor_id': e.doctor_id}
             export['recordings_url'] = f'/api/v1/integration/encounters/{e.id}/recordings'
-            export['encounter']['ai_notice'] = ai_notice()
-            export = payload.get('export') or export
+            export = export_without_ai(payload.get('export') or export)
             if kind == 'export' and not e.reviewed_at:
                 raise ProviderError('Лист не подтверждён врачом')
         if kind == 'transcribe':
@@ -143,22 +142,14 @@ def process_one():
                             generated = None
                             analysis_error = 'Согласие на анализ отозвано. Результат LLM не сохранён.'
                         else:
-                            diagnosis = e.fields.get('diagnosis', '')
-                            diagnosis_code = e.fields.get('diagnosis_code', '')
-                            e.fields = {**generated['fields'], 'diagnosis': diagnosis or generated['fields'].get('diagnosis', ''),
-                                        'diagnosis_code': diagnosis_code or generated['fields'].get('diagnosis_code', ''),
-                                        'visit_type': e.fields.get('visit_type', 'primary'), 'visit_format': e.fields.get('visit_format', 'in_person')}
+                            e.fields = merge_generated_fields(e.fields, generated['fields'], new_transcript=True)
                             e.speaker_roles = generated['speaker_roles']
                     job.payload = {**job.payload, 'result_roles': e.speaker_roles, 'stage': 'done'}
                     job.error = analysis_error[:250] if analysis_error else None
             elif kind == 'generate':
                 if settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not (settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')))):
                     raise ProviderError('Согласие на облако отозвано. Результат удалён.')
-                # Повторная генерация не заменяет диагноз, уже внесённый врачом.
-                diagnosis = e.fields.get('diagnosis', '')
-                diagnosis_code = e.fields.get('diagnosis_code', '')
-                e.fields = {**result['fields'], 'diagnosis': diagnosis or result['fields'].get('diagnosis', ''), 'diagnosis_code': diagnosis_code or result['fields'].get('diagnosis_code', ''),
-                            'visit_type': e.fields.get('visit_type', 'primary'), 'visit_format': e.fields.get('visit_format', 'in_person')}
+                e.fields = merge_generated_fields(e.fields, result['fields'])
                 e.speaker_roles = result['speaker_roles']
                 e.reviewed_at = None
             elif kind == 'mute_audio':

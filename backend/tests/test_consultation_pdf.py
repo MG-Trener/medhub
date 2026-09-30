@@ -16,6 +16,7 @@ def sample():
              'visit_type': 'primary', 'complaints': 'Синтетический пример: боль в горле.',
              'life_history': 'Әә Ғғ Ққ Ңң Өө Ұұ Үү Һһ Іі', 'height': '158 см', 'weight': '78 кг',
              'ai_conclusion': 'Предварительный синтетический текст для проверки врачом.',
+             'ai_test_recommendations': 'AI_TESTS_SENTINEL', 'ai_diagnosis_variants': 'AI_VARIANTS_SENTINEL',
          }},
         {'name': 'Тестовый Пациент', 'iin': '000000000000', 'birth_date': '1990-01-02'},
         {'name': 'Тестовый Врач', 'specialty': 'Терапевт', 'department': 'Тестовое отделение'},
@@ -38,7 +39,10 @@ def test_pdf_includes_fields_kazakh_font_and_explicit_draft():
     assert '30.09.2026 11:15' in text and '30.09.2026 11:29' in text
     assert '31,2 кг/м²' in text
     assert 'Әә Ғғ Ққ Ңң Өө Ұұ Үү Һһ Іі' in text
-    assert ' '.join(AI_CONCLUSION_NOTICE.split()) in ' '.join(text.split())
+    assert AI_CONCLUSION_NOTICE not in text
+    assert 'Предварительное заключение ИИ' not in text
+    assert encounter['fields']['ai_conclusion'] not in text
+    assert 'AI_TESTS_SENTINEL' not in text and 'AI_VARIANTS_SENTINEL' not in text
     assert all(ord(c) in pdfmetrics.getFont(font).face.charToGlyph
                for font in (FONT, BOLD) for c in 'ӘәҒғҚқҢңӨөҰұҮүҺһІі')
     embedded_fonts = [str(font.get_object()['/BaseFont'])

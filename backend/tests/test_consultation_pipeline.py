@@ -37,7 +37,7 @@ def test_automatic_analysis_archive_approval_and_mis(client, doctor, monkeypatch
     assert process_one()
     assert client.get(f'/api/v1/jobs/{job["job_id"]}').json()['state'] == 'done'
     saved = client.get(f'/api/v1/encounters/{e["id"]}').json()
-    assert saved['fields']['complaints'] == 'Боль в горле'
+    assert saved['fields']['complaints'] == 'Синтетическая запись для проверки\n\nБоль в горле'
     assert saved['speaker_roles']['SPEAKER_00'] == 'patient'
     records = client.get(f'/api/v1/encounters/{e["id"]}/recordings').json()
     assert records[0]['available'] and records[0]['transcript']

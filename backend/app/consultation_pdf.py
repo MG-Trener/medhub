@@ -16,7 +16,6 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from .clinical import AI_CONCLUSION_NOTICE
 
 
 ASSETS = Path(__file__).resolve().parent.parent / 'assets'
@@ -104,9 +103,6 @@ def build_consultation_pdf(encounter: dict, patient: dict, doctor: dict) -> byte
     title_style = ParagraphStyle('ClinicalTitle', parent=body, fontName=BOLD, fontSize=21,
                                 leading=26, textColor=BROWN, spaceAfter=5, keepWithNext=True)
     hint = ParagraphStyle('ClinicalHint', parent=small, textColor=MUTED, spaceAfter=8)
-    ai_notice = ParagraphStyle('ClinicalNotice', parent=small, textColor=BROWN, backColor=SAND,
-                               borderColor=BORDER, borderWidth=.5, borderPadding=8,
-                               spaceBefore=4, spaceAfter=9)
     output = BytesIO()
     doc = SimpleDocTemplate(output, pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm,
                             topMargin=34 * mm, bottomMargin=19 * mm, pageCompression=1,
@@ -209,9 +205,6 @@ def build_consultation_pdf(encounter: dict, patient: dict, doctor: dict) -> byte
     heading(7, 'Назначения и рекомендации')
     value('recommendations')
     value('follow_up', 'Дальнейшее наблюдение')
-    heading(8, 'Предварительное заключение ИИ')
-    story.append(Paragraph(_text(AI_CONCLUSION_NOTICE), ai_notice))
-    value('ai_conclusion')
     story.append(Spacer(1, 8))
     rule = HRFlowable(width='100%', thickness=.7, color=BORDER, spaceAfter=8)
     rule.keepWithNext = True
