@@ -129,3 +129,7 @@
 ## 2026-09-30 16:03:22 +05:00 — Единые способы подписи QR, NCALayer и eGov Mobile с обновлением статуса
 
 Изменены: `frontend/src/Auth.vue`, `frontend/src/ConsentSigning.vue`, `frontend/src/IdentitySigning.vue`, `frontend/src/Settings.vue`, `frontend/src/SigningMethods.vue`, `frontend/src/eds.js`, `frontend/tests/eds.test.js`.
+
+## 2026-09-30 16:10:41 +05:00 — README по шаблону и напоминание о конфиденциальности перед записью
+
+Изменены: `README.md`, `frontend/src/Consultation.vue`, `frontend/src/consultation.css`.

@@ -286,6 +286,13 @@ onBeforeUnmount(() => { destroyed = true; clearTimeout(liveTimer); clearInterval
     <aside v-if="!readOnly" class="consultation-left">
       <section class="panel transcript-panel"><div class="section-title"><h3><Mic :size="20"/>Разговор</h3><span class="hint">{{ e.transcript.length }} реплик</span></div>
         <div v-if="recordAllowed || recording" class="conversation-recording">
+          <div v-if="!recording" class="recording-privacy-notice" role="note" aria-labelledby="recording-privacy-title">
+            <strong id="recording-privacy-title">Перед записью — напомните о конфиденциальности</strong>
+            <p>Попросите участников не называть ФИО, ИИН, телефон, точный адрес и другие данные, по которым можно узнать человека. Обсуждайте приём обезличенно: «пациент», «врач», «родственник» — и только необходимые медицинские сведения.</p>
+            <p v-if="settings.asr_provider === 'openai'">OpenAI получает исходное аудио до маскирования. Автоматическое обезличивание после распознавания может пропустить персональные данные.</p>
+            <p v-else>Автоматическое маскирование может пропустить персональные данные. Проверьте текст перед передачей облачной модели.</p>
+            <small>Напоминание не заменяет согласие пациента. Перед загрузкой готовой записи также проверьте её содержимое.</small>
+          </div>
           <div class="recording-meter"><span class="record-clock">{{ formatDuration(seconds) }}</span><span v-if="recording" class="recording-status">{{ paused ? 'Пауза записи' : 'Идёт запись' }}</span><div class="record-wave" aria-hidden="true"><i v-for="n in 24" :key="n" :style="{ height: (recording && !paused ? 5 + level * (15 + n % 5 * 13) : 4 + n % 4 * 3) + 'px' }"></i></div></div>
           <div class="record-buttons"><template v-if="recording"><button class="secondary" :disabled="busy" @click="rec.pause"><component :is="paused ? Play : Pause" :size="16"/>{{ paused ? 'Продолжить запись' : 'Пауза' }}</button><button class="primary" :disabled="busy" @click="run(finishDialogue)"><Square :size="16"/>Закончить диалог приёма</button></template><button v-else class="primary full" :disabled="locked || !!audioBlob" @click="run(startRecording)"><Mic :size="17"/>Начать запись</button></div>
           <p class="hint">Звуки: два восходящих тона — начало, нисходящих — окончание; повторяющийся сигнал — обрыв. Проверьте громкость устройства.</p>

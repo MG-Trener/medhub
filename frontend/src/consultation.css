@@ -39,6 +39,10 @@
 .ai-advisory-grid p,.legacy-ai p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}
 .ai-advisory-grid ul{padding-left:20px;font-size:14px}
 .legacy-ai{margin-top:20px}.legacy-ai summary{cursor:pointer;color:#8A5C43}
+.recording-privacy-notice{padding:16px 18px;margin-bottom:18px;border:1px solid #E9CFBA;border-radius:16px;background:#F9F5F1;color:#3E2E20;line-height:1.65}
+.recording-privacy-notice strong{display:block;color:#8A5C43;font-size:16px}
+.recording-privacy-notice p{margin:9px 0;font-size:14px}
+.recording-privacy-notice small{display:block;color:#6F5947;font-size:12px}
 .final-result .final-actions{position:static;display:flex;flex-wrap:wrap;gap:12px}
 .final-result .final-actions button{flex:1;justify-content:center}
 @media(max-width:700px){.ai-advisory-grid{grid-template-columns:1fr}.ai-advisory-content{padding:0 19px 20px}.transcript-disclosure>summary .hint{display:block;margin:8px 0 0}.final-result .final-actions{padding:19px}}
