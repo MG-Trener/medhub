@@ -235,3 +235,17 @@ def test_clinical_edit_preserves_manual_redaction_until_transcript_changes(clien
         'transcript': [{**raw[0], 'text': 'Исправленная синтетическая фраза.'}]}).json()
     assert changed['privacy_reviewed'] is False
     assert changed['redacted_transcript'][0]['text'] == 'Исправленная синтетическая фраза.'
+
+
+def test_integration_document_does_not_change_with_ui_clock(client, doctor, monkeypatch):
+    e = encounter(client, patient(client))
+    approved = client.post(f'/api/v1/encounters/{e["id"]}/approve', json={'version': e['version']}).json()
+    key = client.post('/api/v1/integration-key').json()['api_key']
+    headers = {'Authorization': 'Bearer ' + key}
+    path = f'/api/v1/integration/encounters/{e["id"]}'
+    first = client.get(path, headers=headers).json()
+    monkeypatch.setattr('app.main.now', lambda: approved['ended_at'] + 60)
+    second = client.get(path, headers=headers).json()
+    assert first == second
+    assert 'server_time' not in second['encounter']
+    assert second['encounter']['started_at'] <= second['encounter']['ended_at']

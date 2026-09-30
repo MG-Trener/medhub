@@ -178,15 +178,20 @@ def test_export_only_after_review_and_retry_keeps_idempotency(client, doctor, mo
         deliveries.append(kwargs)
         return httpx.Response(201, request=httpx.Request('POST', url), json={'accepted': True})
     monkeypatch.setattr(httpx.Client, 'post', post)
+    clock = [e['started_at'] + 60]
+    monkeypatch.setattr('app.main.now', lambda: clock[0])
+    monkeypatch.setattr('app.worker.now', lambda: clock[0])
     # Подменяем только приёмник вымышленной МИС.
     for _ in range(2):
         assert client.post(f'/api/v1/encounters/{e["id"]}/send-to-mis', json={'version': e['version']}).status_code == 202
         assert process_one()
         e = client.get(f'/api/v1/encounters/{e["id"]}').json()
         assert e['status'] == 'exported'
+        clock[0] += 60
     assert deliveries[0]['headers']['Idempotency-Key'] == deliveries[1]['headers']['Idempotency-Key']
     assert deliveries[0]['json'] == deliveries[1]['json']
     assert deliveries[0]['json']['encounter']['ai_notice']['disclaimer'] == AI_CONCLUSION_NOTICE
+    assert e['sent_at'] == e['started_at'] + 60
 
 
 def test_ai_notice_cannot_be_overridden_and_old_encounters_work(client, doctor):

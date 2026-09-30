@@ -49,3 +49,7 @@
 ## 2026-09-30 14:03:50 +05:00 — Добавлены таймер, пауза, запись в разговоре и проверка листа консультации
 
 Изменены: `frontend/src/App.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/Consultation.vue`, `frontend/src/consultation.css`, `frontend/src/visit.js`, `frontend/tests/visit.test.js`, ``.
+
+## 2026-09-30 14:06:50 +05:00 — Стабилизирован документ МИС для безопасной повторной отправки
+
+Изменены: `backend/app/main.py`, `backend/tests/test_mis_client.py`, `backend/tests/test_visit_lifecycle.py`, `backend/tests/test_workflow.py`, `examples/mis_client.py`, ``.

@@ -10,6 +10,9 @@ def transfer(encounter_id, medhub_url, medhub_key, mis_url, mis_key):
         r.raise_for_status()
         record = r.json()
         version = record['encounter']['version']
+        # Подтверждение прежней доставки не меняет версию клинического документа.
+        # В API sent_at доступен для мониторинга; в повторный документ его не включаем.
+        record['encounter'].pop('sent_at', None)
         response = client.post(mis_url, json=record, headers={
             'Authorization': f'Bearer {mis_key}',
             'Idempotency-Key': f'{encounter_id}:{version}',

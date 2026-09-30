@@ -663,7 +663,11 @@ def job_status(job_id: str, doctor=Depends(current_doctor), db=Depends(db_sessio
 
 def export_view(db, e):
     p = db.get(Patient, e.patient_id)
-    return {'schema_version': '1.1', 'encounter': encounter_view(e, db), 'patient': patient_view(p), 'doctor_id': e.doctor_id,
+    encounter = encounter_view(e, db)
+    # Время интерфейса меняется при каждом GET и нарушает идемпотентность МИС.
+    for key in ('server_time', 'recording_allowed', 'persisted', 'read_only', 'can_edit', 'capture_deadline'):
+        encounter.pop(key, None)
+    return {'schema_version': '1.1', 'encounter': encounter, 'patient': patient_view(p), 'doctor_id': e.doctor_id,
             'recordings_url': f'/api/v1/integration/encounters/{e.id}/recordings'}
 
 
