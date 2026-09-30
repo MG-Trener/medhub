@@ -8,6 +8,6 @@ defineProps({ compact: Boolean })
 <template>
   <div class="umc-branding" :class="{ 'umc-branding-compact': compact }">
     <img :src="compact ? stackedLogo : horizontalLogo" alt="UMC — University Medical Center" :width="compact ? 4499 : 9121" :height="compact ? 2912 : 1322">
-    <span>UMC Hackathon</span>
+    <span>{{ compact ? 'Хакатон medhub' : 'Создано в рамках хакатона medhub' }}</span>
   </div>
 </template>

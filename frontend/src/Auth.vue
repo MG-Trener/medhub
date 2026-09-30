@@ -42,15 +42,15 @@ async function poll() {
 <template>
   <div class="auth-layout">
     <section class="auth-story">
-      <a class="brand" href="/"><span class="brand-icon">m<span>+</span></span> medhub<span class="brand-dot">.</span></a>
+      <a class="brand" href="/"><span class="brand-icon">a<span>+</span></span> Anamio<span class="brand-dot">.</span></a>
       <div class="story-copy"><span class="eyebrow light">БОЛЬШЕ ВНИМАНИЯ ПАЦИЕНТУ</span><h1>Вы ведёте приём.<br><span>Мы помогаем<br>с записями.</span></h1><p>AI-ассистент превращает разговор в структурированный лист консультации. Решение всегда остаётся за врачом.</p></div>
       <div class="story-note"><div class="note-top"><Stethoscope :size="22"/><span>Ваш помощник на приёме</span><span class="small-dot"></span></div><div class="note-lines"><i></i><i></i><i></i></div><div class="note-bottom"><ShieldCheck :size="17"/> С согласия пациента. Под контролем врача.</div></div>
-      <footer>medhub · кабинет врача <span>Сделано для UMC Hackathon</span></footer>
+      <footer>Anamio · кабинет врача <span>Создано в рамках хакатона medhub</span></footer>
     </section>
     <section class="auth-form">
       <div class="auth-form-inner">
         <UmcLogo class="auth-umc"/>
-        <span class="eyebrow">ЛИЧНЫЙ КАБИНЕТ</span><h2>{{ register ? 'Начнём знакомство' : 'Рады видеть вас' }}</h2><p class="muted">{{ register ? 'Создайте учётную запись врача' : 'Войдите, чтобы продолжить работу с пациентами' }}</p>
+        <span class="eyebrow">ANAMIO · ЛИЧНЫЙ КАБИНЕТ</span><h2>{{ register ? 'Начнём знакомство' : 'Рады видеть вас' }}</h2><p class="muted">{{ register ? 'Создайте учётную запись врача' : 'Войдите, чтобы продолжить работу с пациентами' }}</p>
         <div class="tabs"><button :class="{ active: !register }" @click="register = false">Вход</button><button :class="{ active: register }" @click="register = true">Регистрация</button></div>
         <div v-if="error" class="alert error" role="alert">{{ error }}</div>
         <form @submit.prevent="submit" class="stack">

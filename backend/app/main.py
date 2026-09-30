@@ -21,7 +21,7 @@ from .clinical import ai_notice
 from .openai_asr import OPENAI_ASR_MODEL
 from .identity import router as identity_router
 
-app = FastAPI(title='medhub API', version='0.1.0', docs_url='/api/docs', openapi_url='/api/openapi.json')
+app = FastAPI(title='Anamio API', version='0.1.0', docs_url='/api/docs', openapi_url='/api/openapi.json')
 app.include_router(identity_router)
 rate_buckets = defaultdict(deque)
 rate_lock = threading.Lock()

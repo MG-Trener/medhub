@@ -34,11 +34,11 @@ onMounted(async () => { try { await login(await api('/auth/me')) } catch {} fina
 </script>
 
 <template>
-  <div v-if="loading" class="initial-loading">medhub<span>Загружаем кабинет…</span></div>
+  <div v-if="loading" class="initial-loading">Anamio<span>Загружаем кабинет…</span></div>
   <Auth v-else-if="!doctor" @login="login"/>
   <div v-else class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="/"><span class="brand-icon">m<span>+</span></span>medhub<span class="brand-dot">.</span></a>
+      <a class="brand" href="/"><span class="brand-icon">a<span>+</span></span>Anamio<span class="brand-dot">.</span></a>
       <div class="workspace-label">ПРОСТРАНСТВО ВРАЧА</div>
       <nav><button :class="{ active: page === 'patients' }" :disabled="!!encounter" @click="go('patients')"><Users :size="19"/>Пациенты<ChevronRight class="nav-arrow" :size="15"/></button><button :class="{ active: page === 'settings' }" :disabled="!!encounter" @click="go('settings')"><Settings2 :size="19"/>Настройки</button></nav>
       <div class="sidebar-help"><div class="mini-symbol"><Activity :size="22"/></div><h4>Внимание — пациенту</h4><p>Рутинные записи поможет подготовить AI-ассистент.</p><span>ВЫ ПРОВЕРЯЕТЕ И РЕШАЕТЕ</span></div>
