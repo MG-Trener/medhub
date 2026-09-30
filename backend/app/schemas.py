@@ -7,6 +7,11 @@ from .patient_input import normalize_iin, normalize_phone, birth_date_from_iin
 class Strict(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
 
+    @field_validator('phone', mode='before', check_fields=False)
+    @classmethod
+    def canonical_phone(cls, value):
+        return normalize_phone(value)
+
     @field_validator('iin', mode='before', check_fields=False)
     @classmethod
     def canonical_iin(cls, value):
@@ -14,6 +19,7 @@ class Strict(BaseModel):
 
 
 class Register(Strict):
+    phone: str = Field(default='', max_length=30)
     name: str = Field(min_length=2, max_length=150)
     iin: str = Field(pattern=r'^[0-9]{12}$')
     email: str = Field(min_length=5, max_length=150, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
@@ -47,11 +53,6 @@ class PatientInput(Strict):
             if inferred:
                 return {**values, 'birth_date': inferred}
         return values
-
-    @field_validator('phone', mode='before')
-    @classmethod
-    def canonical_phone(cls, value):
-        return normalize_phone(value)
 
     @model_validator(mode='after')
     def unified_consent(self):

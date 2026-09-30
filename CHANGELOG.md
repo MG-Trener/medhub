@@ -140,3 +140,7 @@
 ## 2026-09-30 16:23:36 +05:00 — Обязательная ЭЦП согласия пациента и компактные кнопки записи
 
 Изменены: `.env.example`, `README.md`, `backend/app/config.py`, `backend/tests/test_patient_consents.py`, `docs/sigex-patient-consent.md`, `frontend/src/App.vue`, `frontend/src/Consultation.vue`, `frontend/src/consultation.css`, `frontend/src/visit.js`, `frontend/tests/visit.test.js`.
+
+## 2026-09-30 16:29:45 +05:00 — Необязательный телефон пациента и врача с проверкой неверного номера
+
+Изменены: `backend/app/main.py`, `backend/app/patient_input.py`, `backend/app/schemas.py`, `backend/tests/test_patient_input.py`, `frontend/src/App.vue`, `frontend/src/Auth.vue`, `frontend/src/MaskedInput.vue`, `frontend/src/patient-input.js`, `frontend/tests/patient-input.test.js`.

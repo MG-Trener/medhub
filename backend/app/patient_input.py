@@ -23,12 +23,15 @@ def normalize_phone(value):
     if not value:
         return ''
     if not isinstance(value, str):
-        raise ValueError('Укажите телефон в формате +7 (XXX) XXX-XX-XX')
+        raise ValueError('Невалидный телефон. Введите номер в формате +7 (XXX) XXX-XX-XX или оставьте поле пустым')
+    value = value.strip()
+    if not value:
+        return ''
     digits = re.sub(r'[\s()+-]', '', value)
     if len(digits) == 10:
         digits = '7' + digits
     elif len(digits) == 11 and digits.startswith('8'):
         digits = '7' + digits[1:]
     if not re.fullmatch(r'7[0-9]{10}', digits):
-        raise ValueError('Укажите телефон в формате +7 (XXX) XXX-XX-XX')
+        raise ValueError('Невалидный телефон. Введите номер в формате +7 (XXX) XXX-XX-XX или оставьте поле пустым')
     return '+' + digits

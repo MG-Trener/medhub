@@ -23,3 +23,13 @@ test('дата рождения из ИИН: век, високосный ден
     assert.equal(birthDateFromIin(iin, today), '')
   }
 })
+
+test('пустой телефон разрешён, неправильный номер не исправляется незаметно', async () => {
+  const { phoneError } = await import('../src/patient-input.js')
+  for (const value of ['', '   ', null, '+7 (701) 123-45-67', '87011234567', '7011234567']) assert.equal(phoneError(value), '')
+  for (const value of ['abc7011234567', '+17011234567', '+770112345670', '+7 (701) 12']) {
+    assert.match(phoneError(value), /Невалидный телефон/)
+    assert.match(phoneError(formatPhone(value)), /Невалидный телефон/)
+  }
+  assert.equal(normalizePhone('   '), '')
+})

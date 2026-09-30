@@ -157,7 +157,7 @@ def auth_options():
 def register(body: Register, response: Response, db=Depends(db_session)):
     registration_allowed(body.code)
     doctor = Doctor(login_hash=digest(body.email), identity_hash=digest('IIN' + body.iin),
-        profile={'name': body.name, 'email': body.email, 'iin': body.iin, 'iin_verified': False},
+        profile={'name': body.name, 'email': body.email, 'phone': body.phone, 'iin': body.iin, 'iin_verified': False},
         password_hash=passwords.hash(body.password))
     db.add(doctor)
     db.flush()

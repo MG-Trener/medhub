@@ -4,14 +4,23 @@ export function formatIin(value) {
   return digits.length > 6 ? digits.slice(0, 6) + ' ' + digits.slice(6) : digits
 }
 export function normalizePhone(value) {
-  const raw = String(value || '').trim()
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  if (!/^\+?[0-9\s()-]*$/.test(raw) || (raw.startsWith('+') && !raw.startsWith('+7'))) return raw
   let digits = raw.replace(/\D/g, '')
+  if (digits.length > 11 || (digits.length === 11 && !/^[78]/.test(digits))) return raw
   if (raw.startsWith('+7') || (digits.length === 11 && /^[78]/.test(digits))) digits = digits.slice(1)
-  return digits ? '+7' + digits.slice(0, 10) : ''
+  if (digits.length > 10) return raw
+  return digits ? '+7' + digits : ''
+}
+export function phoneError(value) {
+  const raw = String(value ?? '').trim()
+  return !raw || /^\+7[0-9]{10}$/.test(normalizePhone(raw)) ? '' : 'Невалидный телефон. Введите номер в формате +7 (701) 123-45-67 или оставьте поле пустым.'
 }
 export function formatPhone(value) {
   const normalized = normalizePhone(value)
   if (!normalized) return ''
+  if (!/^\+7[0-9]{1,10}$/.test(normalized)) return normalized
   const n = normalized.slice(2)
   let result = '+7 (' + n.slice(0, 3)
   if (n.length >= 3) result += ')'

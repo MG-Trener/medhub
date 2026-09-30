@@ -7,7 +7,7 @@ import IdentitySigning from './IdentitySigning.vue'
 import UmcLogo from './UmcLogo.vue'
 const emit = defineEmits(['login'])
 const register = ref(false), busy = ref(false), error = ref(''), options = ref({})
-const form = ref({ name: '', iin: '', email: '', password: '', code: '' })
+const form = ref({ name: '', iin: '', email: '', phone: '', password: '', code: '' })
 onMounted(async () => { try { options.value = await api('/auth/options') } catch (e) { error.value = e.message } })
 async function submit() {
   error.value = ''; busy.value = true
@@ -35,6 +35,7 @@ async function submit() {
           <label v-if="register">ИИН врача<MaskedInput v-model="form.iin" required autocomplete="off" aria-describedby="iin-help"/></label>
           <p v-if="register" id="iin-help" class="hint">Для входа через ЭЦП или eGov Mobile ИИН в проверенной подписи должен совпадать с ИИН учётной записи.</p>
           <label>Электронная почта<input v-model="form.email" type="email" required autocomplete="username" placeholder="doctor@clinic.kz"></label>
+          <label v-if="register">Телефон <span class="hint">необязательно</span><MaskedInput v-model="form.phone" kind="phone" autocomplete="tel"/></label>
           <label>Пароль<input v-model="form.password" type="password" required :minlength="register ? 12 : 1" :autocomplete="register ? 'new-password' : 'current-password'" placeholder="Введите пароль"></label>
           <label v-if="register && !options.demo_mode">Код приглашения<input v-model="form.code" autocomplete="off" placeholder="Код от администратора клиники"></label>
           <p v-if="register" class="hint">Не менее 12 символов. Регистрация по ЭЦП также доступна ниже.</p>
