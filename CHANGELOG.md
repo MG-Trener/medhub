@@ -117,3 +117,7 @@
 ## 2026-09-30 15:36:59 +05:00 — Подключена расшифровка во время приёма и итоговая сборка диалога
 
 Изменены: `README.md`, `docs/live-recording.md`, `frontend/src/Consultation.vue`.
+
+## 2026-09-30 15:44:12 +05:00 — Выбрана облегчённая LLM gpt-5.6-terra после сравнения качества
+
+Изменены: `.env.example`, `README.md`, `docs/llm-selection.md`.
