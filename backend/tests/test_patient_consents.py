@@ -32,7 +32,7 @@ def started(client, consent, method='eds'):
 
 
 def valid_proof(monkeypatch, effect=None):
-    def verify(pdf, cms, iin):
+    def verify(pdf, cms, iin, **kwargs):
         assert pdf.startswith(b'%PDF') and cms == CMS and len(iin) == 12
         if effect:
             effect()
@@ -85,7 +85,7 @@ def test_signed_status_requires_verified_pdf_iin_and_unlocks_processing(client, 
 def test_invalid_proof_does_not_grant_consent(client, doctor, monkeypatch, mismatch):
     p, consent = prepared(client, monkeypatch)
     attempt, path = started(client, consent)
-    def verify(pdf, cms, iin):
+    def verify(pdf, cms, iin, **kwargs):
         if mismatch == 'provider_rejected':
             raise ConsentVerificationError('SIGEX отклонил подпись')
         return {'verified': True, 'signer_iin': '999999999999' if mismatch == 'iin' else iin,
@@ -239,3 +239,58 @@ def test_sigex_private_document_verification_contract(monkeypatch, fault):
         assert proof['verified'] and proof['signer_iin'] == iin and proof['provider_signature_id'] == 123
         assert proof['document_sha256'] == hashlib.sha256(pdf).hexdigest()
         assert len(requests) == 3
+
+
+def test_received_signature_survives_temporary_verification_failure_and_reload(client, doctor, monkeypatch):
+    p, consent = prepared(client, monkeypatch)
+    attempt, path = started(client, consent)
+    def temporary(*args, **kwargs):
+        raise ConsentVerificationError('Временный сбой', retryable=True)
+    monkeypatch.setattr('app.consent.verify_document_signature', temporary)
+    response = client.post(path + '/signature', json={'signature': CMS})
+    assert response.status_code == 200 and response.json()['state'] == 'verifying'
+    assert response.json()['expires_at'] > attempt['expires_at']
+    assert not response.json()['patient']['processing_consent']
+    assert client.post(path + '/signature', json={'signature': CMS}).status_code == 409
+    with SessionLocal() as db:
+        saved = db.get(PatientConsentAttempt, attempt['id'])
+        assert saved.data['cms'] == CMS
+        saved.data = {**saved.data, 'retry_after': 0}
+        db.commit()
+    valid_proof(monkeypatch)
+    client.get(path)  # Повторно запускает проверку без QR / NCALayer.
+    assert client.get(path).json()['state'] == 'signed'
+    assert client.get(f'/api/v1/patients/{p["id"]}').json()['processing_consent']
+
+
+def test_qr_network_timeout_retries_same_request_without_losing_result(monkeypatch):
+    from app.identity import qr_request
+    calls = []
+    def request(method, path, **kwargs):
+        calls.append((method, path))
+        if len(calls) == 1: raise httpx.ReadTimeout('synthetic timeout')
+        return {'signMethod': 'XML'}
+    monkeypatch.setattr('time.sleep', lambda _: None)
+    from app.db import now
+    assert qr_request('GET', '/api/synthetic', now() + 60, requester=request)['signMethod'] == 'XML'
+    assert calls == [('GET', '/api/synthetic')] * 2
+
+
+def test_verification_checkpoint_avoids_duplicate_registration_after_timeout(monkeypatch):
+    pdf, iin = b'%PDF-synthetic', '000000000000'
+    checkpoint, paths = {}, []
+    def handle(request):
+        paths.append(request.url.path)
+        if request.url.path == '/api':
+            return httpx.Response(200, json={'documentId': 'test-document', 'signId': 1, 'data': base64.b64encode(pdf).decode()})
+        if len(paths) == 2: raise httpx.ReadTimeout('synthetic')
+        if request.url.path.endswith('/data'):
+            return httpx.Response(200, json={'documentId': 'test-document', 'signedDataSize': len(pdf), 'digests': {'test': 'digest'}})
+        return httpx.Response(200, json={'documentId': 'test-document', 'dataArchived': False, 'tempStorage': False})
+    original = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kw: original(transport=httpx.MockTransport(handle), **kw))
+    with pytest.raises(ConsentVerificationError) as error:
+        verify_document_signature(pdf, CMS, iin, checkpoint=checkpoint.update)
+    assert error.value.retryable and checkpoint['documentId'] == 'test-document'
+    assert verify_document_signature(pdf, CMS, iin, resume=checkpoint)['verified']
+    assert paths.count('/api') == 1

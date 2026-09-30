@@ -13,7 +13,8 @@ from .db import Patient, PatientConsent, PatientConsentAttempt, Encounter, Sessi
 from .security import current_doctor, digest
 from .schemas import Strict
 from .lifecycle import shared_patient
-from .identity import sigex_request
+from .identity import sigex_request, qr_request
+from .signing_tasks import single_attempt
 from .consent_sigex import verify_document_signature, ConsentVerificationError
 
 router = APIRouter(prefix='/api/v1', tags=['Согласия пациентов'])
@@ -137,7 +138,7 @@ def _expire(db, consent, attempt):
 
 
 def _reply(consent, attempt, patient=None):
-    result = {'id': attempt.id, 'state': attempt.state, 'expires_at': attempt.expires_at, 'server_time': now(),
+    result = {'id': attempt.id, 'method': attempt.method, 'state': 'verifying' if attempt.state == 'pending' and attempt.data.get('cms') else attempt.state, 'expires_at': attempt.expires_at, 'server_time': now(),
               'consent': consent_view(consent), 'error': attempt.data.get('error')}
     if attempt.state == 'pending':
         result.update({key: attempt.data[key] for key in ('qr_image', 'launch_url') if key in attempt.data})
@@ -193,6 +194,7 @@ def _fail(db, consent_id, attempt_id, error):
         db.commit()
 
 
+@single_attempt
 def run_consent_qr(consent_id, attempt_id):
     try:
         with SessionLocal() as db:
@@ -204,27 +206,47 @@ def run_consent_qr(consent_id, attempt_id):
                 _expire(db, consent, attempt)
                 return
             data, pdf, expected_iin, expires = dict(attempt.data), _document_bytes(consent), consent.document['patient']['iin'], attempt.expires_at
+            if data.get('retry_after', 0) > now():
+                return
         documents = {'signMethod': 'CMS_WITH_DATA', 'version': 1, 'documentsToSign': [{
             'id': 1, 'nameRu': 'Smart Consult — согласие пациента на запись и обработку данных',
             'nameKz': 'Smart Consult — пациенттің жазба мен деректерді өңдеуге келісімі',
             'nameEn': 'Smart Consult — patient recording and data processing consent',
             'document': {'file': {'mime': '@file/pdf', 'data': base64.b64encode(pdf).decode()}}}]}
-        uploaded = sigex_request('POST', data['dataURL'], json=documents, timeout=180)
-        if now() >= expires:
-            raise ConsentVerificationError('Срок подписания истёк')
-        result = sigex_request('GET', uploaded.get('signURL', data['signURL']), timeout=180)
-        docs = result.get('documentsToSign', [])
-        if result.get('status') == 'CANCELED' or result.get('signMethod') != 'CMS_WITH_DATA' or len(docs) != 1 or docs[0].get('id') != 1:
-            raise ConsentVerificationError('Подписание отменено или SIGEX вернул другой документ')
-        cms = docs[0]['document']['file']['data']
-        if now() >= expires:
-            raise ConsentVerificationError('Срок подписания истёк')
-        verification = verify_document_signature(pdf, cms, expected_iin)
+        def persist(**values):
+            with SessionLocal() as db:
+                _, consent, attempt = _locked(db, consent_id, attempt_id)
+                if attempt.state != 'pending' or consent.state != 'pending' or attempt.expires_at <= now():
+                    raise ConsentVerificationError('Попытка отменена или истекла')
+                attempt.data = {**attempt.data, **values}
+                if values.get('cms'):
+                    attempt.expires_at = now() + 900  # Подпись получена вовремя; проверка может занять дольше QR.
+                db.commit()
+        if not data.get('cms'):
+            if not data.get('uploaded'):
+                uploaded = qr_request('POST', data['dataURL'], expires, json=documents, requester=sigex_request)
+                data['signURL'] = uploaded.get('signURL', data['signURL'])
+                persist(uploaded=True, signURL=data['signURL'])
+            result = qr_request('GET', data['signURL'], expires, requester=sigex_request)
+            docs = result.get('documentsToSign', [])
+            if result.get('status') == 'CANCELED' or result.get('signMethod') != 'CMS_WITH_DATA' or len(docs) != 1 or docs[0].get('id') != 1:
+                raise ConsentVerificationError('Подписание отменено или SIGEX вернул другой документ')
+            data['cms'] = docs[0]['document']['file']['data']
+            persist(cms=data['cms'])
+        cms = data['cms']
+        verification = verify_document_signature(pdf, cms, expected_iin,
+            resume=data.get('registered'), checkpoint=lambda value: persist(registered=value))
         with SessionLocal() as db:
             _complete(db, consent_id, attempt_id, cms, verification)
     except Exception as error:
         message = str(error) if isinstance(error, ConsentVerificationError) else 'Не удалось завершить подписание. Начните новую попытку'
         with SessionLocal() as db:
+            if isinstance(error, ConsentVerificationError) and error.retryable:
+                _, consent, attempt = _locked(db, consent_id, attempt_id)
+                if attempt.state == 'pending' and attempt.expires_at > now() and attempt.data.get('cms'):
+                    attempt.data = {**attempt.data, 'error': message, 'retry_after': now() + 10}
+                    db.commit()
+                    return
             _fail(db, consent_id, attempt_id, message)
 
 
@@ -340,10 +362,12 @@ def start_consent(consent_id: str, body: StartConsent, request: Request, backgro
 
 
 @router.get('/patient-consents/{consent_id}/attempts/{attempt_id}')
-def consent_attempt_state(consent_id: str, attempt_id: str, request: Request, doctor=Depends(current_doctor), db=Depends(db_session)):
+def consent_attempt_state(consent_id: str, attempt_id: str, request: Request, background: BackgroundTasks, doctor=Depends(current_doctor), db=Depends(db_session)):
     attempt = _attempt(db, consent_id, attempt_id, doctor.id, digest(request.cookies.get('medhub_session', '')))
     consent = _consent(db, consent_id)
     _expire(db, consent, attempt)
+    if attempt.state == 'pending' and (attempt.method == 'qr' or attempt.data.get('cms')):
+        background.add_task(run_consent_qr, consent_id, attempt_id)
     return _reply(consent, attempt, db.get(Patient, consent.patient_id))
 
 
@@ -359,8 +383,21 @@ def submit_signature(consent_id: str, attempt_id: str, body: ConsentSignature, r
     try:
         pdf, expected_iin = _document_bytes(consent), consent.document['patient']['iin']
         db.rollback()  # Внешняя проверка не удерживает блокировки карточки пациента.
-        verification = verify_document_signature(pdf, body.signature, expected_iin)
-        return _complete(db, consent_id, attempt_id, body.signature, verification)
+        # Храним результат NCALayer до обращения к SIGEX, как и результат QR.
+        _, consent, attempt = _locked(db, consent_id, attempt_id)
+        if attempt.state != 'pending' or consent.state != 'pending' or attempt.expires_at <= now() or attempt.data.get('cms'):
+            raise HTTPException(409, 'Попытка завершена или подпись уже проверяется')
+        attempt.data = {**attempt.data, 'cms': body.signature}
+        attempt.expires_at = now() + 900
+        db.commit()
+        run_consent_qr(consent_id, attempt_id)
+        db.expire_all()
+        consent, attempt = _consent(db, consent_id), db.get(PatientConsentAttempt, attempt_id)
+        if attempt.state in ('canceled', 'expired') or consent.state == 'revoked':
+            raise HTTPException(409, 'Попытка завершена, отменена или истекла')
+        if attempt.state == 'failed':
+            raise HTTPException(401, attempt.data.get('error', 'Подпись отклонена'))
+        return _reply(consent, attempt, db.get(Patient, consent.patient_id))
     except ConsentVerificationError as error:
         _fail(db, consent_id, attempt_id, str(error))
         raise HTTPException(401, str(error)) from None

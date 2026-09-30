@@ -1,4 +1,4 @@
-"""SIGEX external authentication: nonce никогда не выбирается браузером."""
+"""Одноразовый XML входа, проверяемый SIGEX; challenge создаёт только сервер."""
 import base64
 import re
 import secrets
@@ -9,6 +9,9 @@ from sqlalchemy import select
 from .config import settings
 from .db import IdentityAttempt, Doctor, SessionLocal, db_session, now, audit
 from .schemas import IdentityStart, Signature
+from .identity_xml import challenge, verify_xml
+from .consent_sigex import ConsentVerificationError
+from .signing_tasks import single_attempt
 from .security import digest, passwords, registration_allowed, issue_session, current_doctor
 
 router = APIRouter(prefix='/api/v1/auth', tags=['ЭЦП и SIGEX'])
@@ -25,10 +28,26 @@ def sigex_request(method, path, **kwargs):
         r.raise_for_status()
         if len(r.content) > 1_000_000:
             raise ValueError('sigex_response_too_large')
-        return r.json()
+        value = r.json()
+        if not isinstance(value, dict) or 'message' in value or 'requestID' in value:
+            raise ValueError('sigex_rejected')
+        return value
+
+
+def qr_request(method, path, expires, requester=None, **kwargs):
+    # SIGEX разрешает повтор long-poll при обрыве TCP до получения HTTP ответа.
+    import time
+    while now() < expires:
+        try:
+            return (requester or sigex_request)(method, path, timeout=min(30, max(1, expires - now())), **kwargs)
+        except httpx.TransportError:
+            time.sleep(1)
+    raise ValueError('qr_expired')
 
 
 def verify(attempt, signature):
+    if attempt.data.get('xml'):
+        return verify_xml(signature, attempt.data['xml'], attempt.data.get('expected_iin', ''))
     data = sigex_request('POST', '/api/auth', json={'nonce': attempt.data['nonce'], 'signature': signature, 'external': True})
     identity = data.get('userId', '')
     if not re.fullmatch(r'IIN[0-9]{12}', identity):
@@ -48,32 +67,52 @@ def attempt_for_browser(db, request, attempt_id, lock=False):
     return a
 
 
+@single_attempt
 def run_qr(attempt_id):
     try:
         with SessionLocal() as db:
             a = db.get(IdentityAttempt, attempt_id)
-            nonce, data_url, sign_url = a.data['nonce'], a.data['dataURL'], a.data['signURL']
-        documents = {'signMethod': 'CMS_WITH_DATA', 'version': 1, 'documentsToSign': [{
-            'id': 1, 'nameRu': 'Вход в кабинет врача medhub', 'nameKz': 'medhub дәрігер кабинетіне кіру',
-            'nameEn': 'Sign in to medhub', 'document': {'file': {'mime': 'application/octet-stream', 'data': nonce}}}]}
-        uploaded = sigex_request('POST', data_url, json=documents, timeout=180)
-        result = sigex_request('GET', uploaded.get('signURL', sign_url), timeout=180)
-        docs = result.get('documentsToSign', [])
-        if result.get('status') == 'CANCELED' or result.get('signMethod') != 'CMS_WITH_DATA' or len(docs) != 1 or docs[0].get('id') != 1:
-            raise ValueError('invalid_signature_response')
+            if not a or a.state != 'pending' or a.expires_at <= now() or not settings().sigex_enabled:
+                return
+            data, expires = dict(a.data), a.expires_at
+        def persist(**values):
+            with SessionLocal() as db:
+                a = db.scalar(select(IdentityAttempt).where(IdentityAttempt.id == attempt_id).with_for_update())
+                if a.state != 'pending' or a.expires_at <= now():
+                    raise ValueError('attempt_expired')
+                a.data = {**a.data, **values}
+                db.commit()
+        if not data.get('signature'):
+            documents = {'signMethod': 'XML', 'version': 1, 'documentsToSign': [{
+                'id': 1, 'nameRu': 'Smart Consult — подтверждение входа', 'nameKz': 'Smart Consult — кіруді растау',
+                'nameEn': 'Smart Consult — sign in', 'documentXml': data['xml']}]}
+            if not data.get('uploaded'):
+                uploaded = qr_request('POST', data['dataURL'], expires, json=documents)
+                data['signURL'] = uploaded.get('signURL', data['signURL'])
+                persist(uploaded=True, signURL=data['signURL'])
+            result = qr_request('GET', data['signURL'], expires)
+            docs = result.get('documentsToSign', [])
+            if result.get('status') == 'CANCELED' or result.get('signMethod') != 'XML' or len(docs) != 1 or docs[0].get('id') != 1:
+                raise ValueError('invalid_signature_response')
+            data['signature'] = docs[0]['documentXml']
+            persist(signature=data['signature'])
+        with SessionLocal() as db:
+            a = db.get(IdentityAttempt, attempt_id)
+            db.expunge(a)
+        profile = verify(a, data['signature'])
         with SessionLocal() as db:
             a = db.scalar(select(IdentityAttempt).where(IdentityAttempt.id == attempt_id).with_for_update())
-            if a.state != 'pending' or a.expires_at <= now():
+            if a.state != 'pending' or a.expires_at <= now() or not settings().sigex_enabled:
                 return
-            profile = verify(a, docs[0]['document']['file']['data'])
             a.data = {**a.data, 'profile': profile}
             a.state = 'signed'
             db.commit()
-    except Exception:
-        # В логи не попадают подписи, ИИН, nonce и URL с capability.
+    except Exception as error:
         with SessionLocal() as db:
             a = db.get(IdentityAttempt, attempt_id)
             if a and a.state == 'pending':
+                if isinstance(error, ConsentVerificationError) and error.retryable and a.expires_at > now():
+                    return  # Следующий опрос повторит проверку сохранённой подписи.
                 a.state = 'failed'
                 db.commit()
 
@@ -86,15 +125,14 @@ def start(method: str, body: IdentityStart, request: Request, response: Response
         registration_allowed(body.code)
     linked_doctor = current_doctor(request, db) if body.purpose == 'link' else None
     try:
-        nonce = sigex_request('POST', '/api/auth', json={})['nonce']
-        base64.b64decode(nonce, validate=True)
-        data = {'nonce': nonce, 'method': method, 'expected_iin': body.iin}
+        expires = now() + 300
+        xml = challenge(body.purpose, settings().public_origin, expires)
+        data = {'xml': xml, 'method': method, 'expected_iin': body.iin}
         if linked_doctor:
             data.update(doctor_id=linked_doctor.id, session_hash=digest(request.cookies.get('medhub_session', '')))
         presentation = {}
-        expires = now() + 300
         if method == 'qr':
-            qr = sigex_request('POST', '/api/egovQr', json={'description': 'Вход в кабинет врача medhub', 'whenDone': {'backUrl': settings().public_origin}})
+            qr = sigex_request('POST', '/api/egovQr', json={'description': 'Smart Consult — вход в кабинет врача', 'whenDone': {'backUrl': settings().public_origin}})
             png = base64.b64decode(qr['qrCode'], validate=True)
             if len(png) > 400000 or not png.startswith(b'\x89PNG\r\n\x1a\n'):
                 raise ValueError('invalid_qr')
@@ -105,6 +143,7 @@ def start(method: str, body: IdentityStart, request: Request, response: Response
             data.update(dataURL=qr['dataURL'], signURL=qr['signURL'])
             expires = min(expires, int(qr['expireAt'] / 1000))
             presentation = {'qr_image': 'data:image/png;base64,' + qr['qrCode'], 'launch_url': qr['eGovMobileLaunchLink']}
+            data.update(presentation)
         token = secrets.token_urlsafe(32)
         a = IdentityAttempt(browser_hash=digest(token), capability_hash=digest(secrets.token_urlsafe(32)), purpose=body.purpose, data=data, expires_at=expires)
         db.add(a)
@@ -112,15 +151,18 @@ def start(method: str, body: IdentityStart, request: Request, response: Response
         response.set_cookie('medhub_identity', token, httponly=True, secure=settings().secure_cookies, samesite='strict', max_age=300)
         if method == 'qr':
             background.add_task(run_qr, a.id)
-        return {'id': a.id, 'nonce': nonce if method == 'eds' else None, 'expires_at': expires, **presentation}
+        return {'id': a.id, 'document_xml': xml, 'sign_format': 'xml', 'expires_at': expires, **presentation}
     except (httpx.HTTPError, KeyError, ValueError):
         raise HTTPException(502, 'SIGEX временно недоступен. Повторите попытку')
 
 
 @router.get('/identity/{attempt_id}')
-def state(attempt_id: str, request: Request, db=Depends(db_session)):
+def state(attempt_id: str, request: Request, background: BackgroundTasks, db=Depends(db_session)):
     a = attempt_for_browser(db, request, attempt_id)
-    return {'state': a.state, 'expires_at': a.expires_at}
+    if a.state == 'pending' and a.data.get('method') == 'qr':
+        background.add_task(run_qr, a.id)
+    return {'id': a.id, 'purpose': a.purpose, 'state': a.state, 'expires_at': a.expires_at,
+            **{k: a.data[k] for k in ('qr_image', 'launch_url') if k in a.data}}
 
 
 @router.post('/identity/{attempt_id}/signature')
@@ -130,10 +172,12 @@ def signature(attempt_id: str, body: Signature, request: Request, db=Depends(db_
         raise HTTPException(409, 'Подпись уже обработана')
     try:
         profile = verify(a, body.signature)
-    except (httpx.HTTPError, ValueError, KeyError):
+    except (httpx.HTTPError, ValueError, KeyError, ConsentVerificationError):
         a.state = 'failed'
         db.commit()
         raise HTTPException(401, 'SIGEX отклонил подпись')
+    if a.expires_at <= now() or not settings().sigex_enabled:
+        raise HTTPException(410, 'Попытка истекла. Начните заново')
     a.data = {**a.data, 'profile': profile}
     a.state = 'signed'
     db.commit()

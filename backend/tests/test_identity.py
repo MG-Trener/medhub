@@ -4,14 +4,7 @@ from app.config import settings
 
 def test_sigex_registration_one_time_and_browser_binding(client, monkeypatch):
     settings().sigex_enabled = True
-    nonce = base64.b64encode(b'challenge_from_sigex').decode()
-    def sigex(method, path, **kwargs):
-        body = kwargs['json']
-        if not body:
-            return {'nonce': nonce}
-        assert body == {'nonce': nonce, 'signature': 'valid-signature-value-123', 'external': True}
-        return {'userId': 'IIN000000000001', 'subjectStructure': [[{'oid': '2.5.4.3', 'value': 'Тестовый Врач'}]]}
-    monkeypatch.setattr('app.identity.sigex_request', sigex)
+    monkeypatch.setattr('app.identity.verify_xml', lambda *args: {'identity': 'IIN000000000001', 'name': 'Тестовый Врач'})
     start = client.post('/api/v1/auth/identity/eds/start', json={'purpose': 'register', 'iin': '000000000001'})
     assert start.status_code == 200
     identity_id = start.json()['id']
@@ -47,24 +40,23 @@ from app.security import digest
 
 def mock_sigex(monkeypatch, iin='000000000001'):
     settings().sigex_enabled = True
-    nonce = base64.b64encode(b'test-server-nonce').decode()
+    def verified(signature, expected, expected_iin):
+        assert '<authentication>' in expected
+        if expected_iin and expected_iin != iin: raise ValueError('iin_mismatch')
+        return {'identity': 'IIN' + iin, 'name': 'Тестовый Врач'}
+    monkeypatch.setattr('app.identity.verify_xml', verified)
     def request(method, path, **kwargs):
-        if path == '/api/auth':
-            if not kwargs['json']:
-                return {'nonce': nonce}
-            assert kwargs['json']['nonce'] == nonce
-            assert kwargs['json']['external'] is True
-            return {'userId': 'IIN' + iin}
         if path == '/api/egovQr':
             return {'qrCode': base64.b64encode(b'\x89PNG\r\n\x1a\n').decode(),
                 'eGovMobileLaunchLink': 'https://m.egov.kz/?link=https%3A%2F%2Fsigex.kz%2Fapi%2Ftest',
                 'dataURL': '/api/test-data', 'signURL': '/api/test-sign', 'expireAt': 9999999999999}
         if path == '/api/test-data':
-            assert kwargs['json']['documentsToSign'][0]['document']['file']['data'] == nonce
+            assert kwargs['json']['signMethod'] == 'XML'
+            assert '<authentication>' in kwargs['json']['documentsToSign'][0]['documentXml']
             return {'signURL': '/api/test-sign'}
         if path == '/api/test-sign':
-            return {'signMethod': 'CMS_WITH_DATA', 'documentsToSign': [
-                {'id': 1, 'document': {'file': {'data': 'test-signature-value-123'}}}]}
+            return {'signMethod': 'XML', 'documentsToSign': [
+                {'id': 1, 'documentXml': 'test-signature-value-123'}]}
         raise AssertionError(path)
     monkeypatch.setattr('app.identity.sigex_request', request)
 
