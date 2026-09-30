@@ -42,6 +42,7 @@ async function login(value) { doctor.value = value; await run(async () => { sett
 async function patientDetails(id) {
   const [p, list] = await Promise.all([api(`/patients/${id}`), api(`/patients/${id}/encounters`)])
   patient.value = p; encounters.value = list
+  patients.value = patients.value.map(item => item.id === p.id ? p : item)
   visitType.value = list.some(e => ['approved', 'exported'].includes(e.status)) ? 'repeat' : 'primary'
   previousEncounter.value = list.find(e => ['approved', 'exported'].includes(e.status))?.id || ''
 }
@@ -105,6 +106,7 @@ async function logout() {
 }
 async function updateConsent(event) {
   await run(async () => { patient.value = await api(`/patients/${patient.value.id}/consent`, { method: 'PATCH', body: { processing_consent: event.target.checked } }) })
+  patients.value = patients.value.map(item => item.id === patient.value.id ? patient.value : item)
   event.target.checked = consent(patient.value)
 }
 function showCreate() { error.value = ''; createOpen.value = true }

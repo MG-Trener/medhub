@@ -45,3 +45,7 @@
 ## 2026-09-30 14:01:35 +05:00 — Оформлен Smart Consult в палитре UMC, добавлены общий поиск и мои приёмы
 
 Изменены: `frontend/index.html`, `frontend/src/App.vue`, `frontend/src/Auth.vue`, `frontend/src/Settings.vue`, `frontend/src/UmcLogo.vue`, `frontend/src/assets/fonts/Inter-Variable.ttf`, `frontend/src/assets/fonts/OFL.txt`, `frontend/src/style.css`, ``.
+
+## 2026-09-30 14:03:50 +05:00 — Добавлены таймер, пауза, запись в разговоре и проверка листа консультации
+
+Изменены: `frontend/src/App.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/Consultation.vue`, `frontend/src/consultation.css`, `frontend/src/visit.js`, `frontend/tests/visit.test.js`, ``.
