@@ -176,3 +176,7 @@
 ## 2026-10-01 10:06:32 +05:00 — Добавлен локальный запуск Windows из .env без Docker с отдельным PostgreSQL
 
 Изменены: `README.md`, `scripts/local.py`.
+
+## 2026-10-01 10:13:15 +05:00 — Подключена официальная иконка UMC с обновлением кеша браузера
+
+Изменены: `frontend/index.html`, `frontend/public/umc-favicon.ico`.
