@@ -192,3 +192,7 @@
 ## 2026-10-02 01:43:02 +05:00 — Зафиксирован поэтапный план качества, кабинет пациента и границы приватности
 
 Изменены: `docs/ai-privacy-pipeline.md`, `docs/production-plan.md`.
+
+## 2026-10-02 01:50:47 +05:00 — Закрыта отправка исходного аудио в API и усилено обезличивание русского и казахского диалога
+
+Изменены: `.env.example`, `backend/app/ai_policy.py`, `backend/app/config.py`, `backend/app/consent.py`, `backend/app/consent_document.py`, `backend/app/live.py`, `backend/app/main.py`, `backend/app/openai_asr.py`, `backend/app/privacy.py`, `backend/app/providers.py`, `backend/app/worker.py`, `backend/tests/conftest.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_openai_asr.py`, `backend/tests/test_privacy_boundary.py`, `backend/tests/test_visit_lifecycle.py`, `frontend/src/ConsentSigning.vue`, `frontend/src/Consultation.vue`, `frontend/src/Settings.vue`.

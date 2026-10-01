@@ -17,7 +17,9 @@ class ProviderError(Exception):
 OPENAI_ASR_MODEL = 'gpt-4o-transcribe-diarize'
 
 
-def transcribe_openai(path):
+def transcribe_openai(path, *, privacy_reviewed=False):
+    if not privacy_reviewed:
+        raise ProviderError('Перед внешним ASR обязательны локальное распознавание, заглушение идентификаторов и проверка обезличенного аудио.')
     s = settings()
     if not s.openai_api_key.strip():
         raise ProviderError('Добавьте OPENAI_API_KEY в настройки сервера и перезапустите API и worker.')

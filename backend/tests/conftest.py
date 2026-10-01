@@ -30,6 +30,9 @@ def database():
     Base.metadata.create_all(engine)
     rate_buckets.clear()
     settings().llm_is_cloud = False
+    settings().llm_provider = 'disabled'
+    settings().llm_url = 'http://127.0.0.1:11434'
+    settings().asr_url = 'http://127.0.0.1:8090'
     settings().asr_provider = 'disabled'
     settings().sigex_enabled = False
     settings().consent_signature_required = False
@@ -45,6 +48,6 @@ def client():
 
 @pytest.fixture
 def doctor(client):
-    r = client.post('/api/v1/auth/register', json={'name': 'Тестовый Врач', 'email': 'test@example.test', 'iin': '000000000001', 'password': 'Very-safe-test-123'})
+    r = client.post('/api/v1/auth/register', json={'name': 'РўРµСЃС‚РѕРІС‹Р№ Р’СЂР°С‡', 'email': 'test@example.test', 'iin': '000000000001', 'password': 'Very-safe-test-123'})
     assert r.status_code == 201, r.text
     return r.json()

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     asr_provider: str = 'disabled'  # faster_whisper, self_hosted, openai
     openai_api_key: str = ''
     asr_url: str = ''
+    trusted_ai_hosts: list[str] = Field(default_factory=lambda: ['asr', 'ollama'])
     asr_api_key: str = ''
     asr_model: str = 'large-v3'
     asr_device: str = 'cpu'

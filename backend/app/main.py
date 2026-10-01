@@ -14,6 +14,7 @@ from sqlalchemy import select, delete, text, or_, inspect
 from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 from .config import settings
+from .ai_policy import llm_is_external, require_trusted_asr, trusted_url
 from .db import Doctor, Session, ApiKey, Patient, PatientIdentity, Encounter, Job, Audit, db_session, now, uid, audit
 from .security import current_doctor, integration_doctor, digest, passwords, search_tokens, registration_allowed, issue_session, owned
 from .schemas import Register, Login, DoctorProfileUpdate, PasswordChange, PatientInput, Consent, EncounterPatch, EncounterCreate, EncounterStart, LifecycleAction, Consultation, PrivacyReview, Version, Regenerate, CloudAudio, RecordingTranscribe, MuteAudio
@@ -226,8 +227,8 @@ def change_doctor_password(body: PasswordChange, response: Response, doctor=Depe
 def configuration(doctor=Depends(current_doctor)):
     s = settings()
     return {'asr_provider': s.asr_provider, 'asr_model': OPENAI_ASR_MODEL if s.asr_provider == 'openai' else s.asr_model,
-            'asr_configured': bool(s.openai_api_key.strip()) if s.asr_provider == 'openai' else s.asr_provider in ('self_hosted', 'faster_whisper'),
-            'llm_provider': s.llm_provider, 'llm_model': s.llm_model, 'llm_is_cloud': s.llm_is_cloud,
+            'asr_configured': s.asr_provider == 'faster_whisper' or (s.asr_provider == 'self_hosted' and trusted_url(s.asr_url)),
+            'llm_provider': s.llm_provider, 'llm_model': s.llm_model, 'llm_is_cloud': llm_is_external(),
             'llm_configured': bool(s.openai_api_key.strip()) if s.llm_provider == 'openai' else s.llm_provider != 'disabled',
             'diarization': s.asr_provider == 'openai' or bool(s.diarization_model), 'mis_configured': bool(s.mis_url),
             'cloud_asr_configured': bool(s.cloud_asr_url), 'audio_retention_hours': s.audio_retention_hours,
@@ -387,6 +388,8 @@ def edit_encounter(encounter_id: str, body: EncounterPatch, doctor=Depends(curre
     snapshot(db, e, 'before_edit')
     if 'previous_encounter_id' in body.model_fields_set:
         e.previous_encounter_id = previous_encounter(db, e.patient_id, body.previous_encounter_id, doctor.id, e.id)
+    if body.fields.model_dump() != e.fields:
+        e.privacy_reviewed = False
     e.fields = body.fields.model_dump()
     e.speaker_roles = body.speaker_roles
     if body.transcript is not None:
@@ -421,14 +424,11 @@ async def upload_audio(encounter_id: str, file: UploadFile = File(...), analyze:
         raise HTTPException(403, 'Пациент не согласился на запись')
     if e.status == 'processing':
         raise HTTPException(409, 'Дождитесь завершения обработки')
-    if settings().asr_provider in ('disabled', 'cloud'):
-        raise HTTPException(503, 'Настройте локальное распознавание или доверенный ASR-сервер. Отправка исходного аудио в облако заблокирована.')
-    if settings().asr_provider == 'openai':
-        if not p.data.get('openai_audio_consent'):
-            raise HTTPException(403, 'В карте пациента нужно согласие на запись и обработку данных, включая передачу исходной записи в OpenAI.')
-        if not settings().openai_api_key.strip():
-            raise HTTPException(503, 'Добавьте OPENAI_API_KEY на сервере и перезапустите API и worker.')
-    if analyze and settings().llm_is_cloud and not p.cloud_consent:
+    try:
+        require_trusted_asr()
+    except Exception:
+        raise HTTPException(503, 'Голос доступен только через доверенный локальный ASR. Исходное аудио во внешний API заблокировано.') from None
+    if analyze and llm_is_external() and not p.cloud_consent:
         raise HTTPException(403, 'Для анализа нужно согласие пациента на обработку обезличенного текста облачной LLM')
     mime = (file.content_type or '').split(';')[0]
     if mime not in ('audio/webm', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/mp4', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/x-m4a', 'audio/flac', 'audio/x-flac'):
@@ -620,14 +620,11 @@ def retranscribe_recording(encounter_id: str, recording_id: str, body: Recording
     require_patient_signature(db, p)
     if not e.recording_consent or not p.recording_consent:
         raise HTTPException(403, 'Согласие пациента на обработку записи отозвано')
-    if settings().asr_provider in ('disabled', 'cloud'):
-        raise HTTPException(503, 'Настройте распознавание речи на сервере')
-    if settings().asr_provider == 'openai':
-        if not p.data.get('openai_audio_consent'):
-            raise HTTPException(403, 'Нужно согласие пациента на обработку исходной записи в OpenAI')
-        if not settings().openai_api_key.strip():
-            raise HTTPException(503, 'Добавьте OPENAI_API_KEY на сервере')
-    if body.analyze and settings().llm_is_cloud and not p.cloud_consent:
+    try:
+        require_trusted_asr()
+    except Exception:
+        raise HTTPException(503, 'Настройте доверенный локальный ASR; отправка исходного аудио в API запрещена.') from None
+    if body.analyze and llm_is_external() and not p.cloud_consent:
         raise HTTPException(403, 'Нужно согласие пациента на обработку обезличенного текста облачной LLM')
     previous = list(db.scalars(select(Job).where(Job.encounter_id == e.id, Job.kind == 'transcribe')))
     attempt = max((j.payload.get('attempt', 0) for j in previous if j.id == recording.id or j.payload.get('recording_id') == recording.id), default=0) + 1
@@ -704,8 +701,7 @@ def generate(encounter_id: str, body: Regenerate, doctor=Depends(current_doctor)
         raise HTTPException(422, 'Сначала добавьте расшифровку или сведения о приёме')
     p = db.get(Patient, e.patient_id)
     require_patient_signature(db, p)
-    direct_openai = settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')
-    if settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not direct_openai)):
+    if llm_is_external() and (not p.cloud_consent or not e.privacy_reviewed):
         raise HTTPException(403, 'Для облачной LLM нужны согласие пациента и проверка маскирования врачом')
     return queue(db, e, 'generate', {'target': body.target})
 

@@ -26,28 +26,20 @@ def upload(client, e):
         files={'file': ('a.wav', audio_bytes(), 'audio/wav')})
 
 
-def test_direct_openai_requires_distinct_consent_and_key(client, doctor, monkeypatch):
+def test_direct_openai_blocked_even_with_all_consents_and_key(client, doctor, monkeypatch):
     configure(monkeypatch)
     p = patient(client)
     e = encounter(client, p)
-    consent(client, p, False)
-    assert upload(client, e).status_code == 403
     consent(client, p, True)
-    monkeypatch.setattr(settings(), 'openai_api_key', '')
     assert upload(client, e).status_code == 503
-    config = client.get('/api/v1/settings').json()
-    assert config['asr_model'] == OPENAI_ASR_MODEL
-    assert config['asr_configured'] is False
-    assert 'openai_api_key' not in config
-    monkeypatch.setattr(settings(), 'openai_api_key', 'test-key-not-a-real-secret')
     config_response = client.get('/api/v1/settings')
-    assert config_response.json()['asr_configured'] is True
+    assert config_response.json()['asr_configured'] is False
     assert settings().openai_api_key not in config_response.text
 
 
 @pytest.mark.parametrize('revoke_at', ['queued', 'processing', 'never'])
-def test_openai_worker_consent_and_redaction(client, doctor, monkeypatch, revoke_at):
-    configure(monkeypatch)
+def test_trusted_worker_consent_and_redaction(client, doctor, monkeypatch, revoke_at):
+    monkeypatch.setattr(settings(), 'asr_provider', 'self_hosted')
     p = patient(client)
     e = encounter(client, p)
     consent(client, p, True)
@@ -57,13 +49,13 @@ def test_openai_worker_consent_and_redaction(client, doctor, monkeypatch, revoke
     def recognize(path):
         calls.append(path)
         if revoke_at == 'processing':
-            consent(client, p, False)
+            client.patch(f'/api/v1/patients/{p["id"]}/consent', json={'processing_consent': False})
         return [{'speaker': 'SPEAKER_00', 'start': 0, 'end': 1, 'text': 'Алия. Тестовая жалоба.'}]
 
     monkeypatch.setattr('app.worker.transcribe', recognize)
     monkeypatch.setattr('app.worker.mask_audio', lambda *args: b'masked-test')
     if revoke_at == 'queued':
-        consent(client, p, False)
+        client.patch(f'/api/v1/patients/{p["id"]}/consent', json={'processing_consent': False})
     assert process_one()
     result = client.get(f'/api/v1/jobs/{job["job_id"]}').json()
     assert len(calls) == (0 if revoke_at == 'queued' else 1)
@@ -111,7 +103,7 @@ def test_openai_request_uses_diarization_contract_and_no_patient_metadata(monkey
 
     monkeypatch.setattr('app.openai_asr.subprocess.run', compress)
     monkeypatch.setattr(httpx.Client, 'post', post)
-    result = transcribe_openai(tmp_path / 'source.audio')
+    result = transcribe_openai(tmp_path / 'source.audio', privacy_reviewed=True)
     assert [s['speaker'] for s in result] == ['SPEAKER_00', 'SPEAKER_01', 'SPEAKER_00', 'SPEAKER_02']
     assert result[1]['start'] == 1.2
     assert all(not p.exists() for p in paths)
@@ -124,7 +116,7 @@ def test_openai_errors_do_not_expose_provider_body_or_key(monkeypatch, tmp_path,
     monkeypatch.setattr(httpx.Client, 'post', lambda self, url, **kw:
         httpx.Response(code, request=httpx.Request('POST', url), json={'error': 'PRIVATE_DATA ' + settings().openai_api_key}))
     with pytest.raises(ProviderError) as error:
-        transcribe_openai(tmp_path / 'source.audio')
+        transcribe_openai(tmp_path / 'source.audio', privacy_reviewed=True)
     assert 'PRIVATE_DATA' not in str(error.value)
     assert settings().openai_api_key not in str(error.value)
 
@@ -134,7 +126,7 @@ def test_missing_key_and_oversized_audio_do_not_call_api(monkeypatch, tmp_path):
     monkeypatch.setattr(httpx.Client, 'post', lambda *a, **kw: pytest.fail('Unexpected API call'))
     monkeypatch.setattr(settings(), 'openai_api_key', '')
     with pytest.raises(ProviderError, match='OPENAI_API_KEY'):
-        transcribe_openai(tmp_path / 'source.audio')
+        transcribe_openai(tmp_path / 'source.audio', privacy_reviewed=True)
     configure(monkeypatch)
 
     def compress(command, **kw):
@@ -143,7 +135,7 @@ def test_missing_key_and_oversized_audio_do_not_call_api(monkeypatch, tmp_path):
 
     monkeypatch.setattr('app.openai_asr.subprocess.run', compress)
     with pytest.raises(ProviderError, match='лимит'):
-        transcribe_openai(tmp_path / 'source.audio')
+        transcribe_openai(tmp_path / 'source.audio', privacy_reviewed=True)
 
 
 @pytest.mark.parametrize('segments', [[], [{'speaker': None, 'start': 0, 'end': 1, 'text': 'test'}],

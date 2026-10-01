@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, R
 from pydantic import Field
 from sqlalchemy import select, inspect
 from .config import settings
+from .ai_policy import llm_is_external, require_trusted_asr
 from .db import Encounter, Patient, Job, SessionLocal, db_session, now, uid, audit
 from .security import current_doctor, owned
 from .schemas import Strict, Consultation
@@ -40,10 +41,10 @@ def permitted(db, e, provider=None):
         raise HTTPException(403, 'Нет действующего согласия пациента на запись и обработку')
     if provider and provider != settings().asr_provider:
         raise HTTPException(409, 'Провайдер ASR изменился во время записи')
-    if settings().asr_provider in ('disabled', 'cloud'):
-        raise HTTPException(503, 'Настройте доверенный ASR или OpenAI')
-    if settings().asr_provider == 'openai' and (not p.data.get('openai_audio_consent') or not settings().openai_api_key):
-        raise HTTPException(403, 'Для OpenAI нужны согласие пациента и настроенный API-ключ')
+    try:
+        require_trusted_asr()
+    except ProviderError as error:
+        raise HTTPException(503, str(error)) from None
     return p
 
 
@@ -219,9 +220,8 @@ def finish(encounter_id: str, stream_id: UUID, body: LiveFinish, doctor=Depends(
 
 
 def can_analyze(p):
-    s = settings()
-    return s.llm_provider != 'disabled' and (not s.llm_is_cloud or (
-        p.cloud_consent and s.llm_provider == 'openai' and p.data.get('openai_audio_consent')))
+    # Облачный текст требует ручной проверки; live её ещё не прошёл.
+    return settings().llm_provider != 'disabled' and not llm_is_external()
 
 
 def process(job_id):

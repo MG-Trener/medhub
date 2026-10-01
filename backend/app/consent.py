@@ -18,7 +18,7 @@ from .signing_tasks import single_attempt
 from .consent_sigex import verify_document_signature, ConsentVerificationError
 
 router = APIRouter(prefix='/api/v1', tags=['Согласия пациентов'])
-DOCUMENT_VERSION = '2026-09-30.1'
+DOCUMENT_VERSION = '2026-10-02.1'
 ATTEMPT_SECONDS = 300
 
 

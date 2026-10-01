@@ -7,6 +7,7 @@ import httpx
 from cryptography.fernet import Fernet
 from sqlalchemy import select, case
 from .config import settings
+from .ai_policy import llm_is_external, require_trusted_asr
 from .db import SessionLocal, Job, Encounter, Patient, audit, now
 from .privacy import redact_segments, redact_clinical_context
 from .providers import transcribe, generate, cloud_transcribe, ProviderError
@@ -45,12 +46,13 @@ def process_one():
             if kind == 'transcribe' and (not p.recording_consent or not e.recording_consent):
                 raise ProviderError('Согласие на запись отозвано')
             if kind == 'transcribe':
+                require_trusted_asr()
                 provider = settings().asr_provider
                 if payload.get('asr_provider', 'legacy') != provider and (provider == 'openai' or 'asr_provider' in payload):
                     raise ProviderError('Провайдер распознавания изменился. Отправьте запись повторно.')
                 if provider == 'openai' and not p.data.get('openai_audio_consent'):
                     raise ProviderError('Нет согласия на передачу исходной записи в OpenAI')
-            if kind == 'generate' and settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not (settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')))):
+            if kind == 'generate' and llm_is_external() and (not p.cloud_consent or not e.privacy_reviewed):
                 raise ProviderError('Нет согласия на облако или проверки маскирования')
             transcript = e.redacted_transcript
             original_segments = e.transcript
@@ -88,9 +90,9 @@ def process_one():
                         current_patient = progress.get(Patient, e.patient_id)
                         if not signature_allows_processing(current_patient, progress):
                             raise ProviderError('Согласие с ЭЦП пациента отозвано. Расшифровка сохранена.')
-                        if not current_patient.recording_consent or (settings().llm_is_cloud and (
-                            not current_patient.cloud_consent or not (settings().llm_provider == 'openai' and current_patient.data.get('openai_audio_consent')))):
-                            raise ProviderError('Для автоматического анализа нужны согласия на OpenAI и облачный текст. Расшифровка сохранена.')
+                        if not current_patient.recording_consent or (llm_is_external() and (
+                            True)):
+                            raise ProviderError('Перед внешней LLM проверьте обезличенный текст. Расшифровка сохранена.')
                         current = progress.get(Job, job_id)
                         current.payload = {**current.payload, 'stage': 'generating'}
                         progress.commit()
@@ -143,7 +145,7 @@ def process_one():
                 if kind == 'transcribe':
                     job.payload = {**job.payload, 'masked_audio': masked_path.name, 'result_transcript': result}
                     if generated:
-                        if settings().llm_is_cloud and (not p.cloud_consent or not p.data.get('openai_audio_consent')):
+                        if llm_is_external():
                             generated = None
                             analysis_error = 'Согласие на анализ отозвано. Результат LLM не сохранён.'
                         else:
@@ -152,7 +154,7 @@ def process_one():
                     job.payload = {**job.payload, 'result_roles': e.speaker_roles, 'stage': 'done'}
                     job.error = analysis_error[:250] if analysis_error else None
             elif kind == 'generate':
-                if settings().llm_is_cloud and (not p.cloud_consent or (not e.privacy_reviewed and not (settings().llm_provider == 'openai' and p.data.get('openai_audio_consent')))):
+                if llm_is_external() and (not p.cloud_consent or not e.privacy_reviewed):
                     raise ProviderError('Согласие на облако отозвано. Результат удалён.')
                 e.fields = merge_generated_fields(e.fields, result['fields'], target=payload.get('target', 'all'))
                 if payload.get('target', 'all') == 'all':

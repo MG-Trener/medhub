@@ -239,7 +239,7 @@ def test_clinical_edit_preserves_manual_redaction_until_transcript_changes(clien
     saved = client.patch(f'/api/v1/encounters/{e["id"]}', json={
         'version': reviewed['version'], 'fields': {'complaints': 'Уточнённая жалоба'},
         'transcript': raw, 'speaker_roles': {'SPEAKER_00': 'patient'}}).json()
-    assert saved['privacy_reviewed'] and saved['redacted_transcript'] == manually_masked
+    assert not saved['privacy_reviewed'] and saved['redacted_transcript'] == manually_masked
     changed = client.patch(f'/api/v1/encounters/{e["id"]}', json={
         'version': saved['version'], 'fields': saved['fields'],
         'transcript': [{**raw[0], 'text': 'Исправленная синтетическая фраза.'}]}).json()
