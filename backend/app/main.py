@@ -16,7 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from .config import settings
 from .db import Doctor, Session, ApiKey, Patient, PatientIdentity, Encounter, Job, Audit, db_session, now, uid, audit
 from .security import current_doctor, integration_doctor, digest, passwords, search_tokens, registration_allowed, issue_session, owned
-from .schemas import Register, Login, PatientInput, Consent, EncounterPatch, EncounterCreate, EncounterStart, LifecycleAction, Consultation, PrivacyReview, Version, Regenerate, CloudAudio, RecordingTranscribe, MuteAudio
+from .schemas import Register, Login, DoctorProfileUpdate, PasswordChange, PatientInput, Consent, EncounterPatch, EncounterCreate, EncounterStart, LifecycleAction, Consultation, PrivacyReview, Version, Regenerate, CloudAudio, RecordingTranscribe, MuteAudio
 from .privacy import redact_segments
 from .patient_input import normalize_iin
 from .clinical import ai_notice, export_without_ai
@@ -194,6 +194,32 @@ def logout(request: Request, response: Response, db=Depends(db_session)):
 @app.get('/api/v1/auth/me', tags=['Авторизация'])
 def me(doctor=Depends(current_doctor)):
     return {'id': doctor.id, **doctor.profile}
+
+
+@app.patch('/api/v1/auth/profile', tags=['Авторизация'])
+def update_doctor_profile(body: DoctorProfileUpdate, doctor=Depends(current_doctor), db=Depends(db_session)):
+    # Блокировка и повторное чтение защищают профиль от параллельного сохранения.
+    doctor = db.scalar(select(Doctor).where(Doctor.id == doctor.id).with_for_update().execution_options(populate_existing=True))
+    email = body.email.casefold()
+    login_hash = digest(email)
+    if db.scalar(select(Doctor.id).where(Doctor.login_hash == login_hash, Doctor.id != doctor.id)):
+        raise HTTPException(409, 'Этот email уже используется другим врачом')
+    doctor.login_hash = login_hash
+    doctor.profile = {**doctor.profile, 'email': email, 'phone': body.phone}
+    audit(db, doctor.id, 'doctor.profile.updated', doctor.id)
+    db.commit()
+    return {'id': doctor.id, **doctor.profile}
+
+
+@app.post('/api/v1/auth/password', tags=['Авторизация'])
+def change_doctor_password(body: PasswordChange, response: Response, doctor=Depends(current_doctor), db=Depends(db_session)):
+    doctor = db.scalar(select(Doctor).where(Doctor.id == doctor.id).with_for_update().execution_options(populate_existing=True))
+    doctor.password_hash = passwords.hash(body.new_password)
+    db.execute(delete(Session).where(Session.doctor_id == doctor.id))
+    issue_session(db, doctor, response)
+    audit(db, doctor.id, 'doctor.password.changed', doctor.id)
+    db.commit()
+    return {'ok': True}
 
 
 @app.get('/api/v1/settings', tags=['Система'])

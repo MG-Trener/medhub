@@ -32,6 +32,22 @@ class Login(Strict):
     password: str = Field(max_length=128)
 
 
+class DoctorProfileUpdate(Strict):
+    email: str = Field(min_length=5, max_length=150, pattern=r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+    phone: str = Field(max_length=30)
+
+
+class PasswordChange(Strict):
+    new_password: str = Field(min_length=12, max_length=128)
+    confirm_password: str = Field(min_length=12, max_length=128)
+
+    @model_validator(mode='after')
+    def matching_passwords(self):
+        if self.new_password != self.confirm_password:
+            raise ValueError('Новый пароль и подтверждение не совпадают')
+        return self
+
+
 class PatientInput(Strict):
     name: str = Field(min_length=2, max_length=150)
     iin: str = Field(pattern=r'^[0-9]{12}$')
