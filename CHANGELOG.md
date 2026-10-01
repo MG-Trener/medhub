@@ -184,3 +184,7 @@
 ## 2026-10-01 10:32:44 +05:00 — Добавлены личные данные врача и установка пароля после входа без проверки старого
 
 Изменены: `backend/app/main.py`, `backend/app/schemas.py`, `backend/tests/test_doctor_profile.py`, `frontend/src/App.vue`, `frontend/src/Settings.vue`.
+
+## 2026-10-01 10:32:57 +05:00 — Добавлена локальная расшифровка аудиоархива с проверкой целостности и отчётом
+
+Изменены: `docs/decrypt-audio.md`, `scripts/decrypt_audio.py`, `scripts/test_decrypt_audio.py`.
