@@ -10,22 +10,29 @@ from concurrent.futures import ThreadPoolExecutor
 from test_consultation_pipeline import prepare
 
 
-def test_slow_live_analysis_does_not_block_asr_or_queue_old_previews(monkeypatch):
+def test_slow_live_analysis_does_not_block_asr_or_queue_old_previews(client, doctor, monkeypatch):
     import threading
-    from app.live import schedule_preview
     started, release = threading.Event(), threading.Event()
+    e, stream, _ = setup_live(client, monkeypatch)
     calls = []
-    def slow(session_id):
-        calls.append(session_id); started.set()
-        assert release.wait(5)
-    monkeypatch.setattr('app.live.preview', slow)
+    def slow(segments, context, target):
+        calls.append(segments); started.set()
+        assert release.wait(10)
+        return {'fields': Consultation(ai_questions=['Уточнить жалобу']).model_dump(), 'speaker_roles': {}}
+    monkeypatch.setattr('app.live.generate', slow)
     monkeypatch.setattr('app.live._preview_future', None)
     with ThreadPoolExecutor(max_workers=1) as executor:
         try:
-            assert schedule_preview(executor, 'first')
-            assert started.wait(2)
-            assert not schedule_preview(executor, 'stale')
-            assert calls == ['first']
+            assert upload(client, e, stream, 0, part(30)).status_code == 202
+            assert process_one(executor)
+            assert started.wait(3)
+            # Два новых ASR-задания заканчиваются, пока первый LLM ещё заблокирован.
+            for seq in (1, 2):
+                assert upload(client, e, stream, seq).status_code == 202
+                assert process_one(executor)
+            progress = client.get(f'/api/v1/encounters/{e["id"]}/live/{stream}').json()
+            assert progress['completed'] == 3 and len(progress['transcript']) == 3
+            assert len(calls) == 1
         finally:
             release.set()
 

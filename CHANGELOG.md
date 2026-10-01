@@ -216,3 +216,7 @@
 ## 2026-10-02 02:45:36 +05:00 — Зафиксированы переносы LF для shell-скриптов и Dockerfile при выпуске с Windows
 
 Изменены: `.gitattributes`.
+
+## 2026-10-02 02:52:57 +05:00 — Зафиксированы результаты выпуска, сравнение проектов и проверки параллельного приёма
+
+Изменены: `backend/tests/test_live.py`, `docs/local-ai-production.md`, `docs/medventures-comparison.md`, `docs/production-plan.md`, `docs/release-2026-10-02.md`.
