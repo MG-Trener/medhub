@@ -87,3 +87,21 @@ def test_patient_voice_external_asr_is_blocked(client, doctor, monkeypatch):
     response = client.post('/api/v1/portal/intakes/' + intake['id'] + '/voice', data={'version': 1},
         files={'file': ('answer.wav', audio_bytes(), 'audio/wav')})
     assert response.status_code == 503
+
+
+def test_long_patient_voice_rejected_before_gpu(client, doctor, monkeypatch):
+    import io
+    import wave
+    intake, _ = create(client, doctor, monkeypatch)
+    monkeypatch.setattr(settings(), 'asr_provider', 'self_hosted')
+    monkeypatch.setattr(settings(), 'asr_url', 'http://127.0.0.1:8090')
+    def forbidden(*args):
+        raise AssertionError('Long audio must never reach ASR')
+    monkeypatch.setattr('app.portal.transcribe', forbidden)
+    output = io.BytesIO()
+    with wave.open(output, 'wb') as audio:
+        audio.setnchannels(1); audio.setsampwidth(2); audio.setframerate(16000)
+        audio.writeframes(b'\0\0' * 16000 * 33)
+    response = client.post('/api/v1/portal/intakes/' + intake['id'] + '/voice', data={'version': 1},
+        files={'file': ('answer.wav', output.getvalue(), 'audio/wav')})
+    assert response.status_code == 422

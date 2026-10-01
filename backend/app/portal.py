@@ -243,10 +243,12 @@ async def voice(intake_id: str, version: int = Form(..., ge=1), file: UploadFile
     data = await file.read(4 * 1024 * 1024 + 1)
     if len(data) < 32 or len(data) > 4 * 1024 * 1024:
         raise HTTPException(413, 'Запишите короткий ответ до 4 МБ')
-    from .lifecycle import audio_signature_valid
+    from .lifecycle import audio_signature_valid, short_audio_valid
     mime = (file.content_type or '').split(';')[0]
     if not await run_in_threadpool(audio_signature_valid, data, mime):
         raise HTTPException(422, 'Нужна аудиозапись поддерживаемого формата')
+    if not await run_in_threadpool(short_audio_valid, data, mime):
+        raise HTTPException(422, 'Голосовой ответ должен быть не длиннее 32 секунд')
     def recognize():
         with tempfile.TemporaryDirectory(prefix='medhub-portal-') as folder:
             path = Path(folder) / 'answer.audio'; path.write_bytes(data)

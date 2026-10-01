@@ -1,4 +1,5 @@
-"""Один worker в Compose: очередь хранится в PostgreSQL, ASR не блокирует HTTP."""
+"""Очередь в БД; один фоновый анализ не задерживает обработку новых live-фрагментов."""
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import tempfile
 import time
@@ -19,7 +20,7 @@ from .consent import signature_allows_processing
 log = logging.getLogger('medhub.worker')
 
 
-def process_one():
+def process_one(preview_executor=None):
     with SessionLocal() as db:
         job = db.scalar(select(Job).where(Job.state == 'queued').order_by(case((Job.kind == 'live_finalize', 1), else_=0), Job.created_at).with_for_update(skip_locked=True).limit(1))
         if not job:
@@ -29,7 +30,7 @@ def process_one():
         job_id, encounter_id, kind, payload = job.id, job.encounter_id, job.kind, job.payload
     if kind in ('live_chunk', 'live_finalize'):
         from .live import process
-        process(job_id)
+        process(job_id, preview_executor=preview_executor)
         return True
     audio_path = None
     masked_path = None
@@ -215,12 +216,13 @@ def cleanup():
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     recover()
+    preview_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='medhub-preview')
     while True:
         try:
             from .live import recover_and_expire
             recover_and_expire()
             cleanup()
-            if not process_one():
+            if not process_one(preview_executor):
                 time.sleep(2)
         except Exception as error:
             log.error('worker failure type=%s', type(error).__name__)

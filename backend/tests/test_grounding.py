@@ -28,6 +28,30 @@ def test_manual_lock_survives_model_generated_lock_list():
     assert result['allergies'] == 'Пенициллин' and result['locked_fields'] == ['allergies']
 
 
+def test_quote_context_preserves_negation_without_other_topics():
+    segments = [{'text': 'Аллергии на пенициллин нет. Принимаю аспирин. Осмотр ещё не выполнен.'}]
+    fields = Consultation(allergies='Пенициллин', medications='Аспирин', examination='Осмотр', sources=[
+        {'field': 'allergies', 'quotes': [{'segment': 0, 'text': 'пенициллин'}]},
+        {'field': 'medications', 'quotes': [{'segment': 0, 'text': 'аспирин'}]},
+        {'field': 'examination', 'quotes': [{'segment': 0, 'text': 'Осмотр ещё не выполнен.'}]}])
+    result = grounded_fields(fields, segments)
+    assert result['allergies'] == 'Аллергии на пенициллин нет.'
+    assert result['medications'] == 'Принимаю аспирин.'
+    assert result['examination'] == ''
+
+
+def test_exact_sources_fill_empty_fields_and_spoken_vitals():
+    segments = [{'text': 'Басым үш күннен бері ауырады. Жүрегім айнымайды.'},
+                {'text': 'Давление сто двадцать на восемьдесят, пульс семьдесят два.'}]
+    fields = Consultation(sources=[
+        {'field': 'complaints', 'quotes': [{'segment': 0, 'text': segments[0]['text']}]},
+        {'field': 'blood_pressure', 'quotes': [{'segment': 1, 'text': segments[1]['text']}]},
+        {'field': 'pulse', 'quotes': [{'segment': 1, 'text': segments[1]['text']}]}])
+    result = grounded_fields(fields, segments)
+    assert result['complaints'] == segments[0]['text']
+    assert result['blood_pressure'] == '120/80' and result['pulse'] == '72'
+
+
 def test_lock_requires_explicit_unlock_and_current_version(client, doctor):
     from test_workflow import patient, encounter
     e = encounter(client, patient(client))

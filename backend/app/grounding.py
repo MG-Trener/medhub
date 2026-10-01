@@ -1,9 +1,20 @@
 """Клинические факты модели принимаются как цитаты, не как непроверяемый пересказ."""
 import hashlib
 import json
+import re
 from .clinical import DOCUMENT_FIELDS
 
 PHYSICIAN_DECISIONS = {'diagnosis', 'diagnosis_code', 'recommendations', 'follow_up'}
+
+
+def sentence_context(full, quote):
+    """Расширяем цитату до предложений, сохраняя отрицание без соседних тем."""
+    start = full.find(quote.strip())
+    end = start + len(quote.strip())
+    boundaries = [0, *[m.end() for m in re.finditer(r'(?<!\d)[.!?;](?!\d)|\n', full)], len(full)]
+    left = max(b for b in boundaries if b <= start)
+    right = min(b for b in boundaries if b >= end)
+    return full[left:right].strip()
 
 
 def transcript_revision(segments):
@@ -22,18 +33,24 @@ def grounded_fields(fields, segments):
             if quote.segment < len(segments) and quote.text.strip() in segments[quote.segment]['text']:
                 # Вопрос/вырезанные ПДн не превращаются в положительное утверждение.
                 full = segments[quote.segment]['text'].strip()
-                if '?' not in full and '[ПЕРСОНАЛЬНЫЕ ДАННЫЕ]' not in quote.text:
-                    # Сохраняем целую реплику: вырезанная моделью цитата может потерять отрицание.
-                    valid.append({'segment': quote.segment, 'text': full})
+                context = sentence_context(full, quote.text)
+                if '?' not in context and '[ПЕРСОНАЛЬНЫЕ ДАННЫЕ]' not in context:
+                    if source.field == 'examination' and re.search(
+                        r'осмотр.{0,25}(не выполн|не провед|ещ[её] не)|осмотр.{0,15}(позже|после)|'
+                        r'қарау.{0,20}(жүргізілген жоқ|жүргізілмеген)', context, re.I):
+                        continue
+                    valid.append({'segment': quote.segment, 'text': context})
         if valid:
             sources[source.field] = {'field': source.field, 'segments': sorted({q['segment'] for q in valid}),
                                     'quotes': valid, 'revision': transcript_revision(segments)}
     for field in DOCUMENT_FIELDS - {'visit_type', 'visit_format'}:
-        if not result[field]:
+        if not result[field] and field not in sources:
             continue
         if field in PHYSICIAN_DECISIONS or field not in sources:
+            populated = bool(result[field])
             result[field] = ''
-            warnings.append(f'{field}: вывод модели не внесён в лист; требуется решение врача или точный источник.')
+            if populated:
+                warnings.append(f'{field}: вывод модели не внесён в лист; требуется решение врача или точный источник.')
             sources.pop(field, None)
         else:
             quotes = list(dict.fromkeys(q['text'] for q in sources[field]['quotes']))

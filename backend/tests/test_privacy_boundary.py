@@ -48,6 +48,16 @@ def test_openai_always_external(monkeypatch):
     assert llm_is_external()
 
 
+@pytest.mark.parametrize('provider', ['ollama', 'openai_compatible'])
+def test_external_llm_http_blocked_even_without_cloud_flag(monkeypatch, provider):
+    from app.providers import generate
+    monkeypatch.setattr(settings(), 'llm_provider', provider)
+    monkeypatch.setattr(settings(), 'llm_url', 'http://public.example.test')
+    monkeypatch.setattr(settings(), 'llm_is_cloud', False)
+    with pytest.raises(ProviderError, match='HTTPS'):
+        generate([])
+
+
 def test_cloud_generation_requires_automatic_privacy_not_manual_review(client, doctor, monkeypatch):
     from test_workflow import patient, encounter
     p = patient(client)

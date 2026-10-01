@@ -208,3 +208,7 @@
 ## 2026-10-02 02:25:12 +05:00 — Нормализованы измерения из русских и казахских цитат без догадок модели
 
 Изменены: `backend/app/grounding.py`, `backend/app/vitals.py`, `backend/tests/test_vitals.py`.
+
+## 2026-10-02 02:44:09 +05:00 — Исправлены обязательные источники LLM, длительность голосовых ответов и фоновый анализ приёма
+
+Изменены: `backend/app/grounding.py`, `backend/app/lifecycle.py`, `backend/app/live.py`, `backend/app/portal.py`, `backend/app/providers.py`, `backend/app/worker.py`, `backend/tests/test_grounding.py`, `backend/tests/test_live.py`, `backend/tests/test_portal.py`, `backend/tests/test_privacy_boundary.py`.

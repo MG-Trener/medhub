@@ -224,7 +224,7 @@ def can_analyze(p):
     return settings().llm_provider != 'disabled' and (not llm_is_external() or (p.cloud_consent and automatic_privacy_ready()))
 
 
-def process(job_id):
+def process(job_id, preview_executor=None):
     """Один worker; результаты промежуточной LLM защищены версией документа."""
     try:
         with SessionLocal() as db:
@@ -256,7 +256,10 @@ def process(job_id):
                 job.payload = {**job.payload, 'result_transcript': result}
                 job.state, job.error, job.updated_at = 'done', None, now()
                 db.commit()
-            preview(metadata['session'])
+            if preview_executor is None:
+                preview(metadata['session'])
+            else:
+                schedule_preview(preview_executor, metadata['session'])
         else:
             finalize(job_id)
     except Exception as error:
@@ -269,6 +272,23 @@ def process(job_id):
                 session.state, session.error = 'failed', job.error
                 db.get(Encounter, job.encounter_id).status = 'draft'
             db.commit()
+
+
+import threading
+
+_preview_guard = threading.Lock()
+_preview_future = None
+
+
+def schedule_preview(executor, session_id):
+    # Один inference и ни одного накопленного устаревшего запроса. Следующий
+    # фрагмент запускает анализ актуального полного текста, финализация — всего хвоста.
+    global _preview_future
+    with _preview_guard:
+        if _preview_future is not None and not _preview_future.done():
+            return False
+        _preview_future = executor.submit(preview, session_id)
+        return True
 
 
 def preview(session_id):

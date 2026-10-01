@@ -6,7 +6,28 @@ from app.db import SessionLocal, Encounter, Job, now
 from app.schemas import Consultation
 from app.live import wav_bytes, read_audio, recover_and_expire
 from app.worker import process_one
+from concurrent.futures import ThreadPoolExecutor
 from test_consultation_pipeline import prepare
+
+
+def test_slow_live_analysis_does_not_block_asr_or_queue_old_previews(monkeypatch):
+    import threading
+    from app.live import schedule_preview
+    started, release = threading.Event(), threading.Event()
+    calls = []
+    def slow(session_id):
+        calls.append(session_id); started.set()
+        assert release.wait(5)
+    monkeypatch.setattr('app.live.preview', slow)
+    monkeypatch.setattr('app.live._preview_future', None)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        try:
+            assert schedule_preview(executor, 'first')
+            assert started.wait(2)
+            assert not schedule_preview(executor, 'stale')
+            assert calls == ['first']
+        finally:
+            release.set()
 
 
 def part(seconds=20, silent=False):

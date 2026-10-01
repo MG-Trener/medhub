@@ -130,6 +130,31 @@ def claim_capture(db, e, token):
     audit(db, e.doctor_id, 'capture.used', nonce)
 
 
+def short_audio_valid(data, mime, seconds=32):
+    """Ограничиваем длительность на сервере, включая WebM без метаданных duration."""
+    if mime in ('audio/wav', 'audio/x-wav'):
+        import io
+        import wave
+        try:
+            with wave.open(io.BytesIO(data)) as stream:
+                return 0 < stream.getnframes() / stream.getframerate() <= seconds
+        except (wave.Error, EOFError, ZeroDivisionError):
+            return False
+    with tempfile.TemporaryDirectory(prefix='medhub-short-audio-') as folder:
+        source = Path(folder) / 'recording.audio'
+        source.write_bytes(data)
+        try:
+            decoded = subprocess.run(['ffmpeg', '-v', 'error', '-protocol_whitelist', 'file,pipe',
+                '-i', str(source), '-map', '0:a:0', '-t', str(seconds + 1),
+                '-ac', '1', '-ar', '16000', '-f', 's16le', 'pipe:1'],
+                capture_output=True, timeout=15, check=True)
+            return 0 < len(decoded.stdout) <= seconds * 16000 * 2
+        except FileNotFoundError:
+            raise HTTPException(503, 'На сервере требуется ffmpeg для проверки длительности') from None
+        except (subprocess.SubprocessError, OSError):
+            return False
+
+
 def audio_signature_valid(data, mime):
     """Отклоняем пустой/переименованный файл до создания медицинской записи."""
     if mime in ('audio/wav', 'audio/x-wav'):
