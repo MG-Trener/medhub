@@ -17,6 +17,7 @@ async function submit() {
 </script>
 
 <template>
+  <a href="/patient" class="patient-entry">Кабинет пациента / Пациент кабинеті</a>
   <div class="auth-layout">
     <section class="auth-story">
       <a class="platform-brand" href="/"><UmcLogo :caption="false"/><strong>Smart Consult</strong><span>Консультация с AI / ИИ-ассистентом</span></a>
@@ -49,3 +50,5 @@ async function submit() {
     </section>
   </div>
 </template>
+
+<style scoped>.patient-entry{position:fixed;right:24px;top:16px;z-index:5;color:#5d4535;font-size:14px}</style>

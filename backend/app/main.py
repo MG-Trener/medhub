@@ -21,6 +21,7 @@ from .schemas import Register, Login, DoctorProfileUpdate, PasswordChange, Patie
 from .privacy import redact_segments
 from .grounding import manual_fields, transcript_revision
 from .privacy_gate import automatic_privacy_ready
+from .portal import router as portal_router
 from .patient_input import normalize_iin
 from .clinical import ai_notice, export_without_ai
 from .openai_asr import OPENAI_ASR_MODEL
@@ -35,6 +36,7 @@ app = FastAPI(title='Smart Consult API', version='0.2.0', docs_url='/api/docs', 
 app.include_router(identity_router)
 app.include_router(consent_router)
 app.include_router(live_router)
+app.include_router(portal_router)
 rate_buckets = defaultdict(deque)
 rate_lock = threading.Lock()
 

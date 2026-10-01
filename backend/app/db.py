@@ -155,6 +155,44 @@ class IdentityAttempt(Base):
     expires_at: Mapped[int] = mapped_column(Integer)
 
 
+class PortalAccount(Base):
+    __tablename__ = 'portal_accounts'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    login_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    profile: Mapped[dict] = mapped_column(Encrypted)
+    password_hash: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[int] = mapped_column(Integer, default=now)
+
+
+class PortalSession(Base):
+    __tablename__ = 'portal_sessions'
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey('portal_accounts.id'), index=True)
+    expires_at: Mapped[int] = mapped_column(Integer)
+
+
+class Intake(Base):
+    __tablename__ = 'patient_intakes'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    account_id: Mapped[str] = mapped_column(ForeignKey('portal_accounts.id'), index=True)
+    doctor_id: Mapped[str] = mapped_column(ForeignKey('doctors.id'), index=True)
+    state: Mapped[str] = mapped_column(String(20), default='draft')
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    data: Mapped[dict] = mapped_column(Encrypted, default=dict)
+    encounter_id: Mapped[str | None] = mapped_column(ForeignKey('encounters.id'), index=True)
+    created_at: Mapped[int] = mapped_column(Integer, default=now)
+    updated_at: Mapped[int] = mapped_column(Integer, default=now)
+
+
+class IntakeInvite(Base):
+    __tablename__ = 'intake_invites'
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    doctor_id: Mapped[str] = mapped_column(ForeignKey('doctors.id'), index=True)
+    script: Mapped[dict] = mapped_column(Encrypted)
+    expires_at: Mapped[int] = mapped_column(Integer)
+    account_id: Mapped[str | None] = mapped_column(ForeignKey('portal_accounts.id'))
+
+
 class Audit(Base):
     __tablename__ = 'audit'
     __table_args__ = (Index('ix_audit_object_action', 'object_id', 'action'),)

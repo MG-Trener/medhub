@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     consent_signature_required: bool = True
     mis_url: str = ''
     mis_token: str = ''
+    patient_portal_enabled: bool = False
+    portal_session_hours: int = Field(default=8, ge=1, le=24)
     privacy_service_url: str = ''
     privacy_service_token: str = ''
     privacy_ner_model: str = ''  # локальный каталог GLiNER; не скачивать при обработке пациента

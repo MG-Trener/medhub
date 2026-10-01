@@ -2,6 +2,9 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { Users, Search, Plus, ChevronRight, ArrowLeft, Settings2, ShieldCheck, LogOut, CalendarDays, ArrowUpRight, X, FileText, Play, Stethoscope } from 'lucide-vue-next'
 import Auth from './Auth.vue'
+import PatientPortal from './PatientPortal.vue'
+import IntakeInbox from './IntakeInbox.vue'
+const patientMode = location.pathname.startsWith('/patient')
 import Pager from './Pager.vue'
 import MaskedInput from './MaskedInput.vue'
 import { birthDateFromIin, formatPhone, formatIin } from './patient-input'
@@ -31,7 +34,7 @@ const initials = name => (name || '').split(' ').filter(Boolean).slice(0, 2).map
 const date = value => value ? new Date(value * 1000).toLocaleString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
 const birthDate = value => value ? new Date(`${value}T12:00:00`).toLocaleDateString('ru-RU') : 'Не указана'
 const statuses = { draft: 'Черновик', ready: 'Готов к проверке', processing: 'Обработка', approved: 'Проверено врачом', exported: 'Передан в МИС' }
-const title = computed(() => encounter.value ? 'Консультация' : page.value === 'settings' ? 'Настройки' : page.value === 'encounters' ? 'Мои приёмы' : patient.value ? 'Карта пациента' : 'Поиск пациентов')
+const title = computed(() => encounter.value ? 'Консультация' : page.value === 'settings' ? 'Настройки' : page.value === 'intakes' ? 'Анкеты пациентов' : page.value === 'encounters' ? 'Мои приёмы' : patient.value ? 'Карта пациента' : 'Поиск пациентов')
 const priorOptions = computed(() => encounters.value.filter(e => e.status !== 'processing'))
 const shownOwn = computed(() => ownEncounters.value)
 const consent = p => p?.ai_processing_allowed ?? p?.processing_consent ?? !!(p?.recording_consent && p?.cloud_consent && p?.cloud_audio_consent && p?.openai_audio_consent)
@@ -155,16 +158,17 @@ function guardActiveVisit(event) {
 }
 onMounted(() => window.addEventListener('beforeunload', guardActiveVisit))
 onBeforeUnmount(() => window.removeEventListener('beforeunload', guardActiveVisit))
-onMounted(async () => { try { await login(await api('/auth/me')) } catch {} finally { loading.value = false } })
+onMounted(async () => { if(patientMode){loading.value=false;return} try { await login(await api('/auth/me')) } catch {} finally { loading.value = false } })
 </script>
 
 <template>
-  <div v-if="loading" class="initial-loading">Smart Consult<span>Загружаем кабинет…</span></div>
+  <PatientPortal v-if="patientMode"/>
+  <div v-else-if="loading" class="initial-loading">Smart Consult<span>Загружаем кабинет…</span></div>
   <Auth v-else-if="!doctor" @login="login"/>
   <div v-else class="app-shell compact-shell" :class="{ 'settings-screen': page === 'settings' && !encounter }">
     <aside class="sidebar">
       <a class="platform-brand" href="/" @click.prevent="go('patients')"><UmcLogo :caption="false"/><strong>Smart Consult</strong><span>Консультация с AI / ИИ-ассистентом</span></a>
-      <nav aria-label="Кабинет врача"><button :class="{ active: page === 'patients' }" @click="go('patients')"><Users :size="20"/>Пациенты<ChevronRight class="nav-arrow" :size="16"/></button><button :class="{ active: page === 'encounters' }" @click="go('encounters')"><FileText :size="20"/>Мои приёмы</button><button :class="{ active: page === 'settings' }" @click="go('settings')"><Settings2 :size="20"/>Настройки</button></nav>
+      <nav aria-label="Кабинет врача"><button :class="{ active: page === 'intakes' }" @click="go('intakes')">Анкеты до приёма</button><button :class="{ active: page === 'patients' }" @click="go('patients')"><Users :size="20"/>Пациенты<ChevronRight class="nav-arrow" :size="16"/></button><button :class="{ active: page === 'encounters' }" @click="go('encounters')"><FileText :size="20"/>Мои приёмы</button><button :class="{ active: page === 'settings' }" @click="go('settings')"><Settings2 :size="20"/>Настройки</button></nav>
       <div class="sidebar-bottom"><ShieldCheck :size="17"/><span>Под контролем врача</span></div>
       <div class="doctor-card"><Stethoscope :size="23"/><div><span>Врач</span><strong>{{ doctor.name }}</strong></div><button class="icon-button" aria-label="Выйти из кабинета" @click="logout"><LogOut :size="18"/></button></div>
       <div class="hackathon-credit">Создано в рамках хакатона medhub</div>
@@ -172,6 +176,7 @@ onMounted(async () => { try { await login(await api('/auth/me')) } catch {} fina
     <div class="main-shell"><header class="topbar"><div class="breadcrumb">Кабинет врача <ChevronRight :size="15"/><strong>{{ title }}</strong></div></header><main :class="{ 'encounter-main': encounter, 'patient-main': !encounter && page === 'patients' }">
       <div v-if="error" class="alert error" role="alert">{{ error }}<button class="icon-button" aria-label="Закрыть сообщение" @click="error = ''"><X :size="17"/></button></div>
       <div v-if="!encounter && activeVisit" class="active-visit"><span>Приём не завершён · {{ activeVisit.patient?.name || (activeVisit.patient_id === patient?.id ? patient.name : 'другой пациент') }}</span><button class="secondary" :disabled="busy" @click="openEncounter(activeVisit)">Вернуться к приёму</button></div><Consultation v-if="encounter" :key="encounter.id" ref="consultation" :initial="encounter" :patient="patient" :settings="settings" :doctor="doctor" @back="back" @updated="encounterUpdated" @open-previous="openEncounter"/>
+      <IntakeInbox v-else-if="page === 'intakes'"/>
       <Settings v-else-if="page === 'settings'" :settings="settings" @profile-updated="doctor = $event"/>
       <template v-else-if="page === 'encounters'">
         <div class="page-heading compact-heading"><div><span class="eyebrow">ЛИЧНЫЙ КАБИНЕТ</span><h1>Мои приёмы</h1><p class="muted">Консультации ваших пациентов и листы, ожидающие проверки.</p></div></div>

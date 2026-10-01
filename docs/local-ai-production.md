@@ -1,0 +1,60 @@
+# Локальные модели: сайт на ПК и сайт на сервере
+
+## Проверенные факты на 02.10.2026
+
+Текущий Windows-хост показывает Intel Iris Xe, дискретная NVIDIA через WMI не обнаружена. Сервер 77.37.65.54: 3 ГБ RAM, GPU не обнаружена. На сервере есть VPN-сети 10.8.0.0/24 и 10.9.0.0/24. Прежний адрес 10.9.0.3 не отвечает на ASR 8090 и LM Studio 1234. Наличие ранее подготовленной инструкции RTX 3060 не доказывает доступность этой карты сейчас.
+
+Сначала на **реальном GPU-ПК** выполнить `nvidia-smi` и сохранить модель, VRAM, драйвер; `Get-CimInstance Win32_ComputerSystem | Select TotalPhysicalMemory`. Intel Iris Xe не запускает CUDA; на таком ПК возможно CPU-тестирование с существенно большей задержкой. Для приёма целевой интервал 20–30 секунд должен подтверждаться измерением полного конвейера, а не оценкой по размеру модели.
+
+Владелец уточнил: целевой GPU-ПК — **RTX 3060 12 ГБ**. Сейчас подключение к нему недоступно; развёртывание toolkit на нём выполняется позже отдельным запуском Codex по этой инструкции. Пункты GPU-инференса и benchmark нельзя отмечать выполненными на основании текущего Windows-хоста.
+
+## Модельные профили
+
+| Компонент | Стартовый вариант | Альтернативы для сравнения | Ограничение |
+|---|---|---|---|
+| ASR | faster-whisper large-v3 + Community-1 | large-v3-turbo, [казахская дообученная Whisper](https://huggingface.co/abilmansplus/whisper-turbo-ksc2), [GigaAM-Multilingual](https://huggingface.co/ai-sage/GigaAM-Multilingual) | Проверять RU, KK, смешанную речь, отрицания и дозы; WER модели не доказывает точность медицины |
+| Local LLM | Qwen3 8B quantized через Ollama либо LM Studio | модели большего размера при достаточной VRAM, специализированный адаптер | Оценивать факты, вопросы, цитаты и задержку; не выбирать только по успешному JSON |
+| API LLM | серверный OpenAI Responses или OpenAI-compatible API | модель в настройках без привязки к одному поставщику | Ключ только серверу; обезличивание до запроса, `store=false` для OpenAI |
+| PII NER | [GLiNER multilingual v2.1](https://huggingface.co/urchade/gliner_multi-v2.1) в приватном процессе | локальный детектор, дообученный на RU/KK медицинском корпусе | Apache-2.0; карточка не подтверждает качество казахских ПДн; нужен отдельный privacy-тест |
+
+## Подготовка Windows GPU-ПК
+
+1. Checkout этой ветки в отдельный каталог; не хранить пациентские данные в репозитории. Python 3.12, FFmpeg, Node.js и PostgreSQL/Docker. Для NVIDIA установить подходящий CUDA runtime и PyTorch согласно актуальной матрице. Не менять системную БД `postgres`.
+2. Создать `.venv`, установить `backend/requirements.txt`, ASR-зависимости по существующей [Windows-инструкции](../deploy/gpu/windows/WINDOWS.md), затем `python -m pip install -r backend/requirements-privacy.txt`. Не переустанавливать уже работающий CUDA стек вслепую.
+3. Скачать ASR/диаризацию `python scripts/download_models.py --directory D:/AI/medhub/models` (Community-1 требует принятия условий; токен через локальный секретный файл). NER: `python scripts/download_privacy_model.py --directory D:/AI/medhub/models/gliner_multi-v2.1`. Скрипт фиксирует SHA ревизии и проверяет SHA256 загруженных файлов в локальном manifest. Не скачивать модели в момент приёма.
+4. В игнорируемом `deploy/gpu/windows/.env`: `ASR_MODEL=D:/AI/medhub/models/faster-whisper-large-v3`, `DIARIZATION_MODEL=.../pyannote-speaker-diarization-community-1`, `PRIVACY_NER_MODEL=.../gliner_multi-v2.1`, `ASR_DEVICE=cuda`, `ASR_COMPUTE_TYPE=int8_float16`, `DIARIZATION_BATCH_SIZE=4`, `ASR_RELEASE_CUDA_CACHE=true`, `BIND_IP=127.0.0.1`. Создать длинный случайный `ASR_SERVICE_TOKEN`, не выводить/не коммитить.
+5. Запустить `deploy/gpu/windows/start-asr.ps1`. Процесс не содержит ключей API/БД и не сохраняет записи после обработки. Проверить авторизованный `/ready`, затем **реальное** синтетическое `/transcribe` и `/redact`. `health` проверяет только процесс. GLiNER работает на CPU по умолчанию, сохраняя VRAM для ASR/LLM.
+6. Запустить Ollama с локальной моделью или LM Studio по существующему `start-llm.ps1`. Для LM Studio использовать `/v1`, `LLM_RESPONSE_FORMAT=json_schema`, один параллельный запрос и ограниченный контекст. Приватный доступ, API-аутентификация и лимиты памяти обязательны. Замерить совместное использование VRAM: ASR и LLM не координируют её автоматически.
+
+## Сайт на том же ПК
+
+В корневом `.env` настроить отдельную БД `medhub`, случайные `ENCRYPTION_KEY` и `INDEX_KEY`, `PUBLIC_ORIGIN=http://localhost:5173` и локальные адреса:
+
+```dotenv
+ASR_PROVIDER=self_hosted
+ASR_URL=http://127.0.0.1:8090
+ASR_API_KEY=<секрет из ASR_SERVICE_TOKEN>
+PRIVACY_SERVICE_URL=http://127.0.0.1:8090
+PRIVACY_SERVICE_TOKEN=<секрет из ASR_SERVICE_TOKEN>
+LLM_PROVIDER=ollama
+LLM_URL=http://127.0.0.1:11434
+LLM_MODEL=qwen3:8b
+LLM_IS_CLOUD=false
+PATIENT_PORTAL_ENABLED=true
+```
+
+Для Docker заменить localhost на host.docker.internal; в Compose БД изолирована в собственном volume. Запустить `docker compose up --build -d` либо `python scripts/local.py` (отдельный локальный кластер medhub). Сайт localhost:5173; backend localhost:8010; модели доступны только backend. Не использовать реальные данные для сравнительного теста моделей.
+
+## Серверный сайт и модели на GPU-ПК
+
+Предпочтительно существующий VPN: BIND_IP равен фактическому VPN-IP GPU-ПК, firewall разрешает 8090 и порт LLM **только** VPN-IP сервера. Не открывать порты моделей в интернет. Backend сервера использует эти приватные адреса, ASR/PRIVACY токены и отдельный LLM токен; пациентский браузер обращается только к medhub.ych.kz.
+
+Если VPN недоступен, можно применять обратный SSH-туннель с ПК: `ssh -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 127.0.0.1:18090:127.0.0.1:8090 -R 127.0.0.1:11234:127.0.0.1:1234 root@77.37.65.54`. Использовать отдельный ограниченный туннельный ключ/пользователя для постоянной эксплуатации. Не передавать PPK в OpenSSH: он поддерживается PuTTY/plink. Конкретные host key и ключ аутентификации должны быть известны оператору. Серверные URL тогда `http://127.0.0.1:18090` и `http://127.0.0.1:11234/v1`.
+
+Для API LLM оставить тот же локальный ASR+NER; поменять только `LLM_PROVIDER`, модель и серверный ключ. Если privacy-service не готов, API-вызовы автоматически закрыты. По завершении смены/выключении ПК сервер сохраняет уже полученный текст; новая запись ждёт восстановления ASR. Для постоянной клиники нужен постоянно включённый доверенный compute-хост, резервный ASR и мониторинг; домашний ПК является стендом.
+
+## Приёмка перед включением для клиники
+
+`python scripts/evaluate_privacy.py --url http://127.0.0.1:8090 --token-env ASR_SERVICE_TOKEN` проверяет только синтетические ПДн и сохранение клинических сведений. Затем `scripts/evaluate_local_models.py` и врачебный RU/KK/mixed корпус: неизвестные имена, числа словами, ИИН на границе фрагментов, отрицания, препараты, код диагноза, шум и два голоса. Проверить отсутствие исходного звука в сетевом дампе внешних API. Замерить p95, очередь, VRAM и CPU на 15-минутном диалоге с ASR+NER+LLM одновременно.
+
+Цели: ноль пропусков идентификаторов в утверждённом privacy-корпусе; сохранение клинических фактов в корпусе; p95 полного цикла ≤30 секунд на целевом оборудовании; врач тратит меньше времени на программу, чем на ручной лист. Это критерии пилота, а не уже подтверждённые показатели. Результаты и принятое врачом качество хранить отдельно от Git, без идентификаторов пациентов.
