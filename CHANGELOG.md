@@ -172,3 +172,7 @@
 ## 2026-10-01 09:31:36 +05:00 — Объединён компактный кабинет врача с сохранением логики dev и исправлением переходов
 
 Изменены: `backend/app/main.py`, `backend/tests/test_visit_lifecycle.py`, `docs/compact-workspace-prompt.md`, `docs/compact-workspace-validation.md`, `frontend/src/App.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/ConsentSigning.vue`, `frontend/src/Consultation.vue`, `frontend/src/DiagnosisPicker.vue`, `frontend/src/PagedText.vue`, `frontend/src/Pager.vue`, `frontend/src/main.js`, `frontend/src/text-pages.js`, `frontend/src/workspace.css`, `frontend/tests/preview-server.mjs`, `frontend/tests/text-pages.test.js`.
+
+## 2026-10-01 10:06:32 +05:00 — Добавлен локальный запуск Windows из .env без Docker с отдельным PostgreSQL
+
+Изменены: `README.md`, `scripts/local.py`.

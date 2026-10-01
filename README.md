@@ -80,6 +80,21 @@ docker compose up --build -d
 
 После запуска: [интерфейс](http://localhost:5173), [Swagger](http://localhost:5173/api/docs), [API health](http://localhost:8010/api/health).
 
+### Локальная разработка на Windows без Docker
+
+При установленном PostgreSQL, Node.js и подготовленном Python-окружении:
+
+```powershell
+python -m venv .venv
+./.venv/Scripts/python.exe -m pip install -r backend/requirements.txt -c backend/requirements.lock
+pnpm --dir frontend install --frozen-lockfile
+./.venv/Scripts/python.exe scripts/local.py
+```
+
+Скрипт читает существующий корневой `.env`, применяет миграции только к БД `medhub` и запускает API, worker и Vite. Если `DATABASE_URL` использует Docker-адрес `db`, создаётся отдельный локальный кластер PostgreSQL в `data/local/postgres`, доступный только на `127.0.0.1:55432`. Учётные данные берутся из `DATABASE_URL`; системный PostgreSQL и его базы остаются без изменений. Другой адрес БД используется как задано, поэтому для него укажите отдельную локальную БД `medhub`.
+
+Интерфейс доступен по `http://localhost:5173`; остановка — `Ctrl+C`. При остановке завершаются дочерние сервисы и запущенный скриптом PostgreSQL. Журналы и аудио находятся в `data/local/` и исключены из Git. `.env` не переписывается: адрес интерфейса, локальные cookie и путь аудио меняются только в окружении дочерних процессов. Настройки AI берутся из `.env`; для проверок используйте синтетические данные. Проверка ЭЦП дополнительно требует Java и SDK НУЦ по [инструкции модуля](backend/verifier/README.md).
+
 ### Два пути настройки моделей
 
 **Распознавание речи (ASR) и языковая модель (LLM) настраиваются независимо.** Можно использовать обе модели локально, обе через облачный API или смешанный вариант: например, собственный ASR и облачную LLM.
