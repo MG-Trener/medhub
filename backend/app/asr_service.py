@@ -43,3 +43,41 @@ def speech(file: UploadFile = File(...), authorization: str = Header('')):
         raise HTTPException(503, 'ASR failed. Check model paths and GPU runtime.')
     finally:
         slot.release()
+
+
+from pydantic import BaseModel, Field
+from .privacy_gate import local_private_text, ner
+
+
+class PrivateTexts(BaseModel):
+    texts: list[str] = Field(max_length=2200)
+
+
+@app.post('/redact')
+def redact_private(body: PrivateTexts, authorization: str = Header('')):
+    key = os.environ.get('ASR_SERVICE_TOKEN', '')
+    if len(key) < 32 or not secrets.compare_digest(authorization, 'Bearer ' + key):
+        raise HTTPException(401, 'Invalid privacy credential')
+    if sum(len(t) for t in body.texts) > 400000:
+        raise HTTPException(413, 'Context too large')
+    if not slot.acquire(blocking=False):
+        raise HTTPException(429, 'Privacy service is busy')
+    try:
+        return {'texts': [local_private_text(text) for text in body.texts]}
+    except Exception:
+        raise HTTPException(503, 'Local privacy model unavailable; external processing blocked.') from None
+    finally:
+        slot.release()
+
+
+@app.get('/ready')
+def ready(authorization: str = Header('')):
+    key = os.environ.get('ASR_SERVICE_TOKEN', '')
+    if len(key) < 32 or not secrets.compare_digest(authorization, 'Bearer ' + key):
+        raise HTTPException(401, 'Invalid ASR credential')
+    from .providers import whisper, diarizer
+    try:
+        whisper(); diarizer(); ner()
+        return {'status': 'ready', 'asr': True, 'privacy': True}
+    except Exception:
+        raise HTTPException(503, 'Models unavailable') from None

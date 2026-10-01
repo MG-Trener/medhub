@@ -24,7 +24,7 @@ DOCUMENT_FIELDS = frozenset(('visit_type', 'visit_format', 'complaints', 'anamne
     'respiratory_rate', 'blood_pressure', 'spo2', 'investigations', 'diagnosis',
     'diagnosis_code', 'recommendations', 'follow_up'))
 AI_FIELDS = frozenset(('ai_conclusion', 'ai_test_recommendations', 'ai_diagnosis_variants',
-                       'diagnosis_suggestions', 'warnings'))
+                       'ai_questions', 'diagnosis_suggestions', 'warnings'))
 GENERATION_TARGETS = (DOCUMENT_FIELDS - {'visit_type', 'visit_format', 'diagnosis', 'diagnosis_code'}) | {
     'all', 'ai_test_recommendations', 'ai_diagnosis_variants'}
 
@@ -61,6 +61,8 @@ def merge_generated_fields(existing, generated, *, new_transcript=False, target=
                      'blood_pressure', 'spo2', 'diagnosis_code'}
     normalize = lambda value: ' '.join(value.casefold().split())
     for key in DOCUMENT_FIELDS - {'visit_type', 'visit_format'}:
+        if key in result['locked_fields']:
+            continue
         if target != 'all' and key != target:
             continue
         if key in {'diagnosis', 'diagnosis_code'} and existing.get('diagnosis', '').strip():
@@ -103,10 +105,17 @@ def merge_generated_fields(existing, generated, *, new_transcript=False, target=
                 suggestions[item['code']] = item
         result['diagnosis_suggestions'] = list(suggestions.values())
     result['warnings'] = list(dict.fromkeys(warnings))[:20]
+    if target == 'all':
+        result['ai_questions'] = [q[:500] for q in incoming['ai_questions']][:3]
     result['reviewed_fields'] = [key for key in result['reviewed_fields'] if key not in changed and key in DOCUMENT_FIELDS]
-    sources = {} if new_transcript else {s['field']: set(s['segments']) for s in result['sources']}
+    sources = {} if new_transcript else {s['field']: s for s in result['sources']}
     for source in incoming['sources']:
         if source['field'] in changed:
-            sources.setdefault(source['field'], set()).update(source['segments'])
-    result['sources'] = [{'field': key, 'segments': sorted(indices)[:100]} for key, indices in sources.items()][:50]
+            # Новая версия расшифровки не смешивается с цитатами старой версии.
+            previous = sources.get(source['field'])
+            if previous and previous.get('revision') == source.get('revision'):
+                source = {**source, 'segments': sorted(set(previous['segments']) | set(source['segments']))[:100],
+                          'quotes': (previous.get('quotes', []) + source.get('quotes', []))[:100]}
+            sources[source['field']] = source
+    result['sources'] = list(sources.values())[:50]
     return Consultation.model_validate(result).model_dump()

@@ -54,8 +54,8 @@ def test_worker_adds_to_prefilled_fields_on_both_generation_paths(client, doctor
         assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': saved['version']}).status_code == 202
         assert process_one()
         saved = client.get(f'/api/v1/encounters/{e["id"]}').json()
-    assert saved['fields']['complaints'] == 'Уже внесено врачом\n\nБоль в горле'
-    assert saved['fields']['anamnesis'] == 'Сохранённый анамнез\n\nСо вчерашнего дня'
+    assert saved['fields']['complaints'] == 'Уже внесено врачом'
+    assert saved['fields']['anamnesis'] == 'Сохранённый анамнез'
     assert saved['fields']['allergies'] == 'Пенициллин'
     assert saved['fields']['recommendations'] == 'Врачебная рекомендация'
     assert saved['fields']['diagnosis'] == 'Ручной диагноз' and saved['fields']['diagnosis_code'] == 'I10'

@@ -5,7 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
 RUN python3 -m venv /venv
 ENV PATH="/venv/bin:$PATH"
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir 'faster-whisper>=1.1,<2' 'pyannote.audio>=4,<5'
+COPY backend/requirements-privacy.txt .
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-privacy.txt && pip install --no-cache-dir 'faster-whisper>=1.1,<2' 'pyannote.audio>=4,<5'
 COPY backend/app ./app
 RUN useradd --create-home --uid 10001 medhub
 USER medhub

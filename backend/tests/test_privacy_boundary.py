@@ -48,12 +48,14 @@ def test_openai_always_external(monkeypatch):
     assert llm_is_external()
 
 
-def test_consent_never_bypasses_cloud_review(client, doctor, monkeypatch):
+def test_cloud_generation_requires_automatic_privacy_not_manual_review(client, doctor, monkeypatch):
     from test_workflow import patient, encounter
     p = patient(client)
     client.patch(f'/api/v1/patients/{p["id"]}/consent', json={'processing_consent': True})
     e = encounter(client, p)
     monkeypatch.setattr(settings(), 'llm_provider', 'openai')
-    assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': e['version']}).status_code == 403
-    reviewed = client.post(f'/api/v1/encounters/{e["id"]}/privacy-review', json={'version': e['version'], 'segments': []}).json()
-    assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': reviewed['version']}).status_code == 202
+    monkeypatch.setattr(settings(), 'privacy_ner_model', '')
+    monkeypatch.setattr(settings(), 'privacy_service_url', '')
+    assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': e['version']}).status_code == 503
+    monkeypatch.setattr(settings(), 'privacy_ner_model', 'synthetic-local-model')
+    assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': e['version']}).status_code == 202

@@ -10,6 +10,7 @@ PATTERNS = (
     r'(?:живу по адресу|проживаю|адрес|мекенжайым|мекенжай|тұратын жерім)\s*[:—-]?\s*[^.!?;\n]+',
     r'(?:дата рождения|родил[а-я]*|туған күнім|туған күн[іi])\s*[:—-]?\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}',
     r'(?:паспорт|удостоверение|номер карты|номер полиса|құжат нөмірі)\s*[:№—-]?\s*[\w-]{4,80}',
+    r'(?:иин|жсн)\s*[:№—-]?\s*[^.!?,;\n]+',
     r'https?://\S+|(?<!\w)@[\w.]{3,}',
 )
 
@@ -18,7 +19,7 @@ def sensitive_spans(text, patient=None):
     patient = patient or {}
     patterns = list(PATTERNS)
     values = [patient.get(key, '') for key in ('iin', 'phone', 'birth_date', 'email', 'address')]
-    values += re.findall(r'[\w-]{3,}', patient.get('name', ''))
+    values += re.findall(r'[\w-]{2,}', patient.get('name', ''))
     for value in filter(None, values):
         patterns.append(r'(?<!\w)' + re.escape(str(value)) + r'(?!\w)')
     spans = sorted((match.start(), match.end()) for pattern in patterns
@@ -65,4 +66,24 @@ def redact_clinical_context(fields, patient=None):
             return {key: mask(item) for key, item in value.items()}
         return value
 
-    return {key: mask(value) for key, value in fields.items() if key in DOCUMENT_FIELDS | AI_FIELDS}
+    result = {key: mask(value) for key, value in fields.items() if key in DOCUMENT_FIELDS | AI_FIELDS}
+    features = fields.get('clinical_features', {})
+    if patient:
+        features = {'sex': patient.get('sex', 'unknown'), 'age': patient.get('age')}
+        if not features['age'] and patient.get('birth_date'):
+            from datetime import date
+            try:
+                birth = date.fromisoformat(str(patient['birth_date']))
+                today = date.today()
+                features['age'] = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+            except ValueError:
+                pass
+    if isinstance(features, dict):
+        safe = {}
+        if isinstance(features.get('age'), int) and 0 <= features['age'] <= 120:
+            safe['age'] = features['age']
+        if features.get('sex') in ('female', 'male', 'unknown'):
+            safe['sex'] = features['sex']
+        if safe:
+            result['clinical_features'] = safe
+    return result

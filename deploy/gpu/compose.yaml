@@ -11,6 +11,7 @@ services:
       ASR_DEVICE: cuda
       ASR_COMPUTE_TYPE: float16
       DIARIZATION_MODEL: /models/pyannote-speaker-diarization-community-1
+      PRIVACY_NER_MODEL: /models/gliner_multi-v2.1
       ASR_SERVICE_TOKEN: ${ASR_SERVICE_TOKEN:?Set a random token in deploy/gpu/.env}
       HF_HUB_OFFLINE: '1'
       PYANNOTE_METRICS_ENABLED: '0'

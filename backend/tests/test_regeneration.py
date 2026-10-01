@@ -66,6 +66,8 @@ def test_worker_passes_latest_edits_and_only_updates_requested_answer(client, do
 def test_provider_sends_current_fields_and_target(monkeypatch):
     from app.providers import generate
     monkeypatch.setattr(settings(), 'llm_provider', 'openai')
+    monkeypatch.setattr(settings(), 'privacy_ner_model', 'synthetic-model')
+    monkeypatch.setattr('app.privacy_gate.local_private_text', lambda text: text)
     captured = []
     def extract(messages, schema):
         captured.append(messages)

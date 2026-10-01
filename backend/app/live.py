@@ -220,8 +220,8 @@ def finish(encounter_id: str, stream_id: UUID, body: LiveFinish, doctor=Depends(
 
 
 def can_analyze(p):
-    # Облачный текст требует ручной проверки; live её ещё не прошёл.
-    return settings().llm_provider != 'disabled' and not llm_is_external()
+    from .privacy_gate import automatic_privacy_ready
+    return settings().llm_provider != 'disabled' and (not llm_is_external() or (p.cloud_consent and automatic_privacy_ready()))
 
 
 def process(job_id):
@@ -279,7 +279,7 @@ def preview(session_id):
         if session.state != 'recording' or any(j.state != 'done' for j in parts):
             return
         duration = session.payload['seconds']
-        if duration - session.payload.get('analyzed_seconds', 0) < 60 or not can_analyze(p):
+        if duration - session.payload.get('analyzed_seconds', 0) < 25 or not can_analyze(p):
             return
         transcript = combined(db, session)
         if not any(s['text'].strip() for s in transcript):

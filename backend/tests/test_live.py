@@ -48,7 +48,7 @@ def test_live_ack_preview_final_archive_and_no_repeat_asr(client, doctor, monkey
     assert len({s['speaker'] for s in progress['transcript']}) == 3
     assert len(calls) == 1
     assert progress['encounter']['fields']['diagnosis'] == 'Ручной диагноз'
-    assert progress['encounter']['fields']['complaints'] == 'Правка врача\n\nДополнение'
+    assert progress['encounter']['fields']['complaints'] == 'Правка врача'
     assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': progress['encounter']['version']}).status_code == 409
     assert upload(client, e, stream, 3, part(2)).status_code == 202
     finish_url = f'/api/v1/encounters/{e["id"]}/live/{stream}/finish'

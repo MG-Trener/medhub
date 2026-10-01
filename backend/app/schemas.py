@@ -114,9 +114,16 @@ class Segment(Strict):
         return self
 
 
+class EvidenceQuote(Strict):
+    segment: int = Field(ge=0)
+    text: str = Field(min_length=1, max_length=15000)
+
+
 class FieldSource(Strict):
     field: str = Field(max_length=50)
     segments: list[int] = Field(default_factory=list, max_length=100)
+    quotes: list[EvidenceQuote] = Field(default_factory=list, max_length=100)
+    revision: str = Field(default='', max_length=64)
 
 
 class DiagnosisSuggestion(Strict):
@@ -153,10 +160,12 @@ class Consultation(Strict):
     ai_conclusion: str = Field(default='', max_length=15000)
     ai_test_recommendations: str = Field(default='', max_length=15000)
     ai_diagnosis_variants: str = Field(default='', max_length=15000)
+    ai_questions: list[str] = Field(default_factory=list, max_length=3)
     sources: list[FieldSource] = Field(default_factory=list, max_length=50)
     diagnosis_suggestions: list[DiagnosisSuggestion] = Field(default_factory=list, max_length=5)
     warnings: list[str] = Field(default_factory=list, max_length=20)
     reviewed_fields: list[str] = Field(default_factory=list, max_length=50)
+    locked_fields: list[str] = Field(default_factory=list, max_length=50)
 
 
 class EncounterPatch(Strict):

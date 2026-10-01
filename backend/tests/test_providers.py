@@ -11,7 +11,7 @@ def test_provider_returns_separate_ai_conclusion(monkeypatch, provider, response
     monkeypatch.setattr(settings(), 'llm_provider', provider)
     monkeypatch.setattr(settings(), 'llm_response_format', response_format)
     monkeypatch.setattr(settings(), 'llm_api_key', '')
-    monkeypatch.setattr(settings(), 'llm_url', 'http://model.example.test')
+    monkeypatch.setattr(settings(), 'llm_url', 'http://127.0.0.1:11434')
     content = json.dumps({'fields': {'anamnesis': 'Сведения со слов пациента.',
         'ai_test_recommendations': 'Данных недостаточно; анамнез требует уточнения.', 'ai_diagnosis_variants': 'Недостаточно данных.'}})
 
@@ -42,7 +42,7 @@ def test_provider_returns_separate_ai_conclusion(monkeypatch, provider, response
 def test_optional_local_inference_controls_and_credentials(monkeypatch, configured):
     s = settings()
     monkeypatch.setattr(s, 'llm_provider', 'openai_compatible')
-    monkeypatch.setattr(s, 'llm_url', 'http://local-model.example.test/v1')
+    monkeypatch.setattr(s, 'llm_url', 'http://127.0.0.1:1234/v1')
     monkeypatch.setattr(s, 'llm_api_key', 'synthetic-token' if configured else '')
     monkeypatch.setattr(s, 'llm_reasoning_effort', 'none' if configured else '')
     monkeypatch.setattr(s, 'llm_max_tokens', 2048 if configured else 0)

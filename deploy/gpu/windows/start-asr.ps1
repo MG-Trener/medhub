@@ -55,7 +55,7 @@ $env:PYTHONUNBUFFERED = '1'
 if ([string]::IsNullOrWhiteSpace($env:ASR_SERVICE_TOKEN) -or $env:ASR_SERVICE_TOKEN.Length -lt 32) {
     throw 'ASR_SERVICE_TOKEN must contain at least 32 random characters.'
 }
-foreach ($modelKey in @('ASR_MODEL', 'DIARIZATION_MODEL')) {
+foreach ($modelKey in @('ASR_MODEL', 'DIARIZATION_MODEL', 'PRIVACY_NER_MODEL')) {
     $modelPath = [Environment]::GetEnvironmentVariable($modelKey, 'Process')
     if ([string]::IsNullOrWhiteSpace($modelPath)) {
         throw "$modelKey must point to a local model directory."

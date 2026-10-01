@@ -86,6 +86,10 @@ function changed(key) {
 }
 function reviewField(key) { const list = e.value.fields.reviewed_fields || []; e.value.fields.reviewed_fields = list.includes(key) ? list.filter(x => x !== key) : [...list, key]; dirty.value = true; approvalChecked.value = false }
 function sources(key) { return e.value.fields.sources?.find(x => x.field === key)?.segments || [] }
+async function toggleFieldLock(key) {
+  if (dirty.value) await save()
+  update(await api(`/encounters/${e.value.id}/field-lock`, {method:'POST', body:{version:e.value.version, field:key, locked:!e.value.fields.locked_fields?.includes(key)}}))
+}
 async function refreshArchive() {
   if (!persisted.value || readOnly.value) return
   const [audio, history] = await Promise.all([api(`/encounters/${e.value.id}/recordings`), api(`/encounters/${e.value.id}/history`)])
@@ -318,6 +322,7 @@ onBeforeUnmount(() => { destroyed = true; clearTimeout(autoSaveTimer); clearTime
     <span class="hint">{{ hasConsent(patient) ? 'Согласие получено' : 'Без согласия · вручную' }}</span>
     <template v-if="!readOnly"><span v-if="recording" class="recording-status">{{ paused ? 'Пауза' : 'Запись' }} {{ formatDuration(seconds) }}</span><button v-if="recording" class="secondary" :disabled="busy" @click="rec.pause">{{ paused ? 'Продолжить' : 'Пауза' }}</button><button v-if="recording" class="primary" :disabled="busy" @click="run(finishDialogue)">Остановить запись</button><button v-else-if="recordAllowed" class="secondary" :disabled="locked || !!audioBlob" @click="audioSettings = true">Начать запись</button></template>
   </div>
+  <section v-if="e.fields.ai_questions?.length" class="panel live-questions" aria-live="polite"><strong>Уточнить сейчас</strong><ul><li v-for="q in e.fields.ai_questions" :key="q">{{ q }}</li></ul><span class="hint">Подсказки ИИ · окончательное решение за врачом</span></section>
   <div v-if="error || recorderError || notice || processing || privacyDirty" class="compact-feedback" :class="{ error: error || recorderError }" role="status">{{ error || recorderError || (privacyDirty ? 'Подтвердите маскирование перед правкой листа.' : processing ? 'Обработка… Предыдущие данные сохранены.' : notice) }}</div>
   <div v-show="workspaceTab === 'consultation'" class="visit-columns">
     <section class="clinical-pane panel" :inert="privacyDirty || undefined">
@@ -325,7 +330,7 @@ onBeforeUnmount(() => { destroyed = true; clearTimeout(autoSaveTimer); clearTime
       <nav class="workspace-tabs clinical-nav" aria-label="Раздел медицинской записи"><button v-for="(group, i) in allGroups" :key="group.title" :class="{ active: clinicalTab === i }" @click="clinicalTab = i">{{ group.title }}</button></nav>
       <label v-if="activeKeys.length > 1" class="field-picker">Поле<select v-model="fieldIndex"><option v-for="(key, i) in activeKeys" :key="key" :value="i">{{ fields[key] }}{{ e.fields[key] ? '' : ' · не уточнено' }}</option></select></label>
       <DiagnosisPicker v-if="activeKey === 'diagnosis'" :code="e.fields.diagnosis_code" :disabled="locked" @select="selectDiagnosis"/>
-      <ClinicalField :key="activeKey" v-model="e.fields[activeKey]" :name="activeKey" :label="fields[activeKey]" :disabled="locked" :sources="sources(activeKey)" :reviewed="reviewed || e.fields.reviewed_fields?.includes(activeKey)" @update:model-value="changed(activeKey)" @review="reviewField(activeKey)"/>
+      <ClinicalField :key="activeKey" v-model="e.fields[activeKey]" :name="activeKey" :label="fields[activeKey]" :disabled="locked" :sources="sources(activeKey)" :reviewed="reviewed || e.fields.reviewed_fields?.includes(activeKey)" @update:model-value="changed(activeKey)" @review="reviewField(activeKey)" :ai-locked="e.fields.locked_fields?.includes(activeKey)" @lock="run(() => toggleFieldLock(activeKey))" @source="showSource"/>
       <div v-if="activeKey === 'examination'" class="compact-vitals"><label v-for="(label,key) in vitals" :key="key">{{ label }}<input v-model="e.fields[key]" :disabled="locked" placeholder="Не измерено" @input="changed(key)"></label><label>ИМТ<input :value="bodyMassIndex(e.fields)" readonly placeholder="—"></label></div>
     </section>
     <section class="ai-pane panel" aria-label="ИИ-помощник">
@@ -357,3 +362,5 @@ onBeforeUnmount(() => { destroyed = true; clearTimeout(autoSaveTimer); clearTime
   <div v-if="leaveDestination" class="modal-backdrop" @click.self="!busy && cancelLeave()" @keydown.esc="!busy && cancelLeave()" @keydown="trapFocus"><section ref="leaveDialog" class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="leave-title"><div class="pane-heading"><h2 id="leave-title">{{ e.ended_at ? 'Сохранить изменения?' : 'Приём ещё идёт' }}</h2></div><p>{{ e.ended_at ? 'Сохраните правки перед выходом.' : 'Вы собираетесь покинуть текущий приём. Сохраните данные и приостановите или завершите приём.' }}</p><p v-if="recording" class="hint">Запись продолжится, пока вы не подтвердите выход.</p><p v-if="error" class="error">{{ error }}</p><div class="leave-actions"><button class="primary" :disabled="busy" @click="cancelLeave">Остаться на приёме</button><button v-if="!e.ended_at" class="secondary" :disabled="busy" @click="run(() => confirmLeave('pause'))">Приостановить и выйти</button><button class="secondary" :disabled="busy" @click="run(() => confirmLeave('interrupt'))">{{ e.ended_at ? 'Сохранить и выйти' : 'Завершить приём и выйти' }}</button></div></section></div>
 </section>
 </template>
+
+<style scoped>.live-questions{padding:12px 18px;margin-bottom:10px}.live-questions ul{margin:8px 0;padding-left:20px}</style>

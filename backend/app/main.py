@@ -19,6 +19,8 @@ from .db import Doctor, Session, ApiKey, Patient, PatientIdentity, Encounter, Jo
 from .security import current_doctor, integration_doctor, digest, passwords, search_tokens, registration_allowed, issue_session, owned
 from .schemas import Register, Login, DoctorProfileUpdate, PasswordChange, PatientInput, Consent, EncounterPatch, EncounterCreate, EncounterStart, LifecycleAction, Consultation, PrivacyReview, Version, Regenerate, CloudAudio, RecordingTranscribe, MuteAudio
 from .privacy import redact_segments
+from .grounding import manual_fields, transcript_revision
+from .privacy_gate import automatic_privacy_ready
 from .patient_input import normalize_iin
 from .clinical import ai_notice, export_without_ai
 from .openai_asr import OPENAI_ASR_MODEL
@@ -43,7 +45,7 @@ async def security_headers(request: Request, call_next):
     if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and not request.url.path.startswith('/api/v1/integration/'):
         if request.headers.get('x-medhub-request') != '1' or request.headers.get('origin') not in (None, settings().public_origin):
             return JSONResponse({'detail': 'Недопустимый источник запроса'}, 403)
-    if request.url.path.startswith('/api/v1/auth/'):
+    if request.url.path.startswith(('/api/v1/auth/', '/api/v1/portal/')):
         key = request.client.host if request.client else 'unknown'
         current = time.monotonic()
         with rate_lock:
@@ -231,7 +233,7 @@ def configuration(doctor=Depends(current_doctor)):
             'llm_provider': s.llm_provider, 'llm_model': s.llm_model, 'llm_is_cloud': llm_is_external(),
             'llm_configured': bool(s.openai_api_key.strip()) if s.llm_provider == 'openai' else s.llm_provider != 'disabled',
             'diarization': s.asr_provider == 'openai' or bool(s.diarization_model), 'mis_configured': bool(s.mis_url),
-            'cloud_asr_configured': bool(s.cloud_asr_url), 'audio_retention_hours': s.audio_retention_hours,
+            'automatic_privacy_configured': automatic_privacy_ready(), 'cloud_asr_configured': bool(s.cloud_asr_url), 'audio_retention_hours': s.audio_retention_hours,
             'consent_signature_required': s.consent_signature_required, 'sigex_enabled': s.sigex_enabled}
 
 
@@ -365,7 +367,7 @@ def create_encounter(encounter_id: str, body: EncounterCreate, doctor=Depends(cu
         raise HTTPException(409, 'Приём уже сохранён. Обновите его перед редактированием')
     if body.fields.diagnosis_code and body.fields.diagnosis_code not in by_code():
         raise HTTPException(422, 'Выберите существующий код диагноза из справочника')
-    e.fields, e.speaker_roles = body.fields.model_dump(), body.speaker_roles
+    e.fields, e.speaker_roles = manual_fields({}, body.fields), body.speaker_roles
     e.transcript = [segment.model_dump() for segment in body.transcript]
     e.redacted_transcript = redact_segments(e.transcript, db.get(Patient, e.patient_id).data)
     if 'previous_encounter_id' in body.model_fields_set:
@@ -390,7 +392,7 @@ def edit_encounter(encounter_id: str, body: EncounterPatch, doctor=Depends(curre
         e.previous_encounter_id = previous_encounter(db, e.patient_id, body.previous_encounter_id, doctor.id, e.id)
     if body.fields.model_dump() != e.fields:
         e.privacy_reviewed = False
-    e.fields = body.fields.model_dump()
+    e.fields = manual_fields(e.fields, body.fields)
     e.speaker_roles = body.speaker_roles
     if body.transcript is not None:
         transcript = [x.model_dump() for x in body.transcript]
@@ -399,6 +401,7 @@ def edit_encounter(encounter_id: str, body: EncounterPatch, doctor=Depends(curre
             e.transcript = transcript
             e.redacted_transcript = redact_segments(e.transcript, db.get(Patient, e.patient_id).data)
             e.privacy_reviewed = False
+            e.fields = {**e.fields, 'sources': []}
     e.status, e.reviewed_at = 'draft', None
     e.version += 1
     snapshot(db, e, 'edit')
@@ -701,8 +704,10 @@ def generate(encounter_id: str, body: Regenerate, doctor=Depends(current_doctor)
         raise HTTPException(422, 'Сначала добавьте расшифровку или сведения о приёме')
     p = db.get(Patient, e.patient_id)
     require_patient_signature(db, p)
-    if llm_is_external() and (not p.cloud_consent or not e.privacy_reviewed):
-        raise HTTPException(403, 'Для облачной LLM нужны согласие пациента и проверка маскирования врачом')
+    if llm_is_external() and not p.cloud_consent:
+        raise HTTPException(403, 'Нужно согласие на обработку обезличенных медицинских данных внешней LLM')
+    if llm_is_external() and not automatic_privacy_ready():
+        raise HTTPException(503, 'Облачный анализ ожидает автоматическую локальную защиту ПДн; ручной просмотр не требуется.')
     return queue(db, e, 'generate', {'target': body.target})
 
 
@@ -717,6 +722,36 @@ def approve(encounter_id: str, body: Version, doctor=Depends(current_doctor), db
     e.version += 1
     snapshot(db, e, 'approve')
     audit(db, doctor.id, 'encounter.approve', e.id)
+    db.commit()
+    return encounter_view(e, db, doctor)
+
+
+from .schemas import Strict
+from pydantic import Field
+
+
+class FieldLock(Version):
+    field: str = Field(max_length=50)
+    locked: bool
+
+
+@app.post('/api/v1/encounters/{encounter_id}/field-lock', tags=['Приёмы'])
+def field_lock(encounter_id: str, body: FieldLock, doctor=Depends(current_doctor), db=Depends(db_session)):
+    from .clinical import DOCUMENT_FIELDS
+    e = owned(db, Encounter, encounter_id, doctor, True)
+    verify_version(e, body.version)
+    if body.field not in DOCUMENT_FIELDS - {'visit_type', 'visit_format'}:
+        raise HTTPException(422, 'Неизвестное клиническое поле')
+    locked = set(e.fields.get('locked_fields', []))
+    if body.locked:
+        locked.add(body.field)
+    else:
+        locked.discard(body.field)
+    e.fields = {**e.fields, 'locked_fields': sorted(locked)}
+    e.version += 1
+    e.reviewed_at, e.status, e.privacy_reviewed = None, 'draft', False
+    snapshot(db, e, 'field_lock')
+    audit(db, doctor.id, 'encounter.field_lock', e.id)
     db.commit()
     return encounter_view(e, db, doctor)
 

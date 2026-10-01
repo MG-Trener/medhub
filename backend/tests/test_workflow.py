@@ -111,6 +111,7 @@ def test_worker_transcription_and_generation(client, doctor, monkeypatch):
     assert 'Алия' not in e['redacted_transcript'][0]['text']
     assert client.get(f'/api/v1/encounters/{e["id"]}/recordings').json()[0]['available'] is True
     e = client.patch(f'/api/v1/encounters/{e["id"]}', json={'version': e['version'], 'fields': Consultation(diagnosis='Запись врача').model_dump()}).json()
+    e = client.post(f'/api/v1/encounters/{e["id"]}/field-lock', json={'version': e['version'], 'field': 'complaints', 'locked': False}).json()
     monkeypatch.setattr('app.worker.generate', lambda segments, *args: {'fields': Consultation(complaints='Тестовая жалоба', diagnosis='Ответ модели', ai_test_recommendations='Описаны жалобы; требуются уточнения.').model_dump(), 'speaker_roles': {'SPEAKER_00': 'patient'}})
     assert client.post(f'/api/v1/encounters/{e["id"]}/generate', json={'version': e['version']}).status_code == 202
     assert process_one()

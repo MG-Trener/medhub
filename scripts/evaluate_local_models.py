@@ -45,11 +45,14 @@ def main():
     parser.add_argument('--temperature', type=float)
     args = parser.parse_args()
     os.environ.update(LLM_PROVIDER='openai_compatible', LLM_URL=args.url,
-                      LLM_MODEL=args.model, LLM_RESPONSE_FORMAT='json_schema', LLM_IS_CLOUD='false')
+                      LLM_MODEL=args.model, LLM_RESPONSE_FORMAT='json_schema', LLM_IS_CLOUD='false', LLM_API_KEY='')
     for key, value in [('LLM_REASONING_EFFORT', args.reasoning_effort),
                        ('LLM_MAX_TOKENS', args.max_tokens), ('LLM_TEMPERATURE', args.temperature)]:
         if value is not None:
             os.environ[key] = str(value)
+    from app.ai_policy import trusted_url
+    if not trusted_url(args.url):
+        raise SystemExit('Use a trusted local/VPN endpoint for this synthetic evaluation')
     from app.providers import generate
     from app.clinical import merge_generated_fields
     import httpx
@@ -103,8 +106,8 @@ def main():
                                   no_new_diagnosis=not merged['diagnosis'],
                                   roles_correct=result['speaker_roles'] == {'SPEAKER_00': 'doctor', 'SPEAKER_01': 'patient'})
                 if name == 'mixed_language_correction':
-                    checks.update(blood_pressure_retained='120' in merged['blood_pressure'] and '80' in merged['blood_pressure'],
-                                  pulse_retained='72' in merged['pulse'],
+                    checks.update(blood_pressure_retained=('120' in merged['blood_pressure'] and '80' in merged['blood_pressure']) or ('двадцать' in merged['blood_pressure'] and 'восемьдесят' in merged['blood_pressure']),
+                                  pulse_retained='72' in merged['pulse'] or 'семьдесят два' in merged['pulse'],
                                   nurse_identified=result['speaker_roles'].get('SPEAKER_02') == 'nurse')
                 entry.update(result=result, merged_fields=merged, checks=checks,
                              note='Automated checks cover structure and selected strings only; review all facts manually.')

@@ -11,7 +11,7 @@ def test_consent_pdf_has_patient_scope_and_document_identity():
     second = build_consent_pdf({'name': 'Тестовый Пациент', 'iin': '000000000002'}, 'document-two', 1790774400, 'v1')
     text = '\n'.join(page.extract_text() for page in PdfReader(BytesIO(first)).pages)
     assert len(PdfReader(BytesIO(first)).pages) == 1
-    assert all(value in text for value in ('Тестовый Пациент', '000000000002', 'document-one', 'OpenAI', 'SIGEX', 'NCALayer', 'отозвать'))
+    assert all(value in text for value in ('Тестовый Пациент', '000000000002', 'document-one', 'доверенного контура', 'SIGEX', 'NCALayer', 'отозвать'))
     assert first != second
 
 

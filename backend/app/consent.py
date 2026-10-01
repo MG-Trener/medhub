@@ -19,6 +19,7 @@ from .consent_sigex import verify_document_signature, ConsentVerificationError
 
 router = APIRouter(prefix='/api/v1', tags=['Согласия пациентов'])
 DOCUMENT_VERSION = '2026-10-02.1'
+SUPPORTED_DOCUMENT_VERSIONS = (DOCUMENT_VERSION, '2026-09-30.1')
 ATTEMPT_SECONDS = 300
 
 
@@ -49,9 +50,9 @@ def signature_allows_processing(patient, db=None):
         return True
     if db is None:
         cache = consent_summary(patient)
-        return cache.get('state') == 'signed' and cache.get('version') == DOCUMENT_VERSION and bool(cache.get('verified_at'))
+        return cache.get('state') == 'signed' and cache.get('version') in SUPPORTED_DOCUMENT_VERSIONS and bool(cache.get('verified_at'))
     for consent in db.scalars(select(PatientConsent).where(PatientConsent.patient_id == patient.id,
-            PatientConsent.state == 'signed', PatientConsent.document_version == DOCUMENT_VERSION,
+            PatientConsent.state == 'signed', PatientConsent.document_version.in_(SUPPORTED_DOCUMENT_VERSIONS),
             PatientConsent.signed_at.is_not(None))):
         expected = consent.document.get('patient', {}).get('iin', '')
         if (expected and secrets.compare_digest(expected, patient.data.get('iin', ''))

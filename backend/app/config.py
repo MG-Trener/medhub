@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     consent_signature_required: bool = True
     mis_url: str = ''
     mis_token: str = ''
+    privacy_service_url: str = ''
+    privacy_service_token: str = ''
+    privacy_ner_model: str = ''  # локальный каталог GLiNER; не скачивать при обработке пациента
 
 
 @lru_cache

@@ -52,7 +52,7 @@ def process_one():
                     raise ProviderError('Провайдер распознавания изменился. Отправьте запись повторно.')
                 if provider == 'openai' and not p.data.get('openai_audio_consent'):
                     raise ProviderError('Нет согласия на передачу исходной записи в OpenAI')
-            if kind == 'generate' and llm_is_external() and (not p.cloud_consent or not e.privacy_reviewed):
+            if kind == 'generate' and llm_is_external() and not p.cloud_consent:
                 raise ProviderError('Нет согласия на облако или проверки маскирования')
             transcript = e.redacted_transcript
             original_segments = e.transcript
@@ -90,8 +90,7 @@ def process_one():
                         current_patient = progress.get(Patient, e.patient_id)
                         if not signature_allows_processing(current_patient, progress):
                             raise ProviderError('Согласие с ЭЦП пациента отозвано. Расшифровка сохранена.')
-                        if not current_patient.recording_consent or (llm_is_external() and (
-                            True)):
+                        if not current_patient.recording_consent or (llm_is_external() and not current_patient.cloud_consent):
                             raise ProviderError('Перед внешней LLM проверьте обезличенный текст. Расшифровка сохранена.')
                         current = progress.get(Job, job_id)
                         current.payload = {**current.payload, 'stage': 'generating'}
@@ -145,7 +144,7 @@ def process_one():
                 if kind == 'transcribe':
                     job.payload = {**job.payload, 'masked_audio': masked_path.name, 'result_transcript': result}
                     if generated:
-                        if llm_is_external():
+                        if llm_is_external() and not p.cloud_consent:
                             generated = None
                             analysis_error = 'Согласие на анализ отозвано. Результат LLM не сохранён.'
                         else:
@@ -154,7 +153,7 @@ def process_one():
                     job.payload = {**job.payload, 'result_roles': e.speaker_roles, 'stage': 'done'}
                     job.error = analysis_error[:250] if analysis_error else None
             elif kind == 'generate':
-                if llm_is_external() and (not p.cloud_consent or not e.privacy_reviewed):
+                if llm_is_external() and not p.cloud_consent:
                     raise ProviderError('Согласие на облако отозвано. Результат удалён.')
                 e.fields = merge_generated_fields(e.fields, result['fields'], target=payload.get('target', 'all'))
                 if payload.get('target', 'all') == 'all':

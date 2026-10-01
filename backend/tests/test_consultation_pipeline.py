@@ -18,6 +18,7 @@ def prepare(client, monkeypatch):
     client.patch(f'/api/v1/patients/{p["id"]}/consent', json={
         'recording_consent': True, 'cloud_consent': True, 'openai_audio_consent': True})
     e = encounter(client, p)
+    e = client.post(f'/api/v1/encounters/{e["id"]}/field-lock', json={'version': e['version'], 'field': 'complaints', 'locked': False}).json()
     for key, value in {'asr_provider': 'self_hosted', 'openai_api_key': 'synthetic-test', 'llm_provider': 'ollama', 'llm_is_cloud': False}.items():
         monkeypatch.setattr(settings(), key, value)
     monkeypatch.setattr('app.worker.transcribe', lambda path: [{'speaker': 'SPEAKER_00', 'start': 0, 'end': 2, 'text': 'Алия. Болит горло.'}])
