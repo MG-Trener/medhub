@@ -204,3 +204,7 @@
 ## 2026-10-02 02:21:38 +05:00 — Добавлен двуязычный кабинет пациента со сценарием врача, голосовыми ответами и защищённым переносом анкеты
 
 Изменены: `backend/app/config.py`, `backend/app/db.py`, `backend/app/interview.py`, `backend/app/main.py`, `backend/app/portal.py`, `backend/migrations/versions/0004_patient_portal.py`, `backend/tests/test_portal.py`, `docs/local-ai-production.md`, `docs/patient-portal.md`, `docs/production-plan.md`, `frontend/src/App.vue`, `frontend/src/Auth.vue`, `frontend/src/Consultation.vue`, `frontend/src/IntakeInbox.vue`, `frontend/src/PatientPortal.vue`.
+
+## 2026-10-02 02:25:12 +05:00 — Нормализованы измерения из русских и казахских цитат без догадок модели
+
+Изменены: `backend/app/grounding.py`, `backend/app/vitals.py`, `backend/tests/test_vitals.py`.

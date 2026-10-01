@@ -36,7 +36,12 @@ def grounded_fields(fields, segments):
             warnings.append(f'{field}: вывод модели не внесён в лист; требуется решение врача или точный источник.')
             sources.pop(field, None)
         else:
-            result[field] = '\n\n'.join(dict.fromkeys(q['text'] for q in sources[field]['quotes']))
+            quotes = list(dict.fromkeys(q['text'] for q in sources[field]['quotes']))
+            from .vitals import LABELS, extract_vital
+            result[field] = extract_vital(field, quotes) if field in LABELS else '\n\n'.join(quotes)
+            if not result[field]:
+                sources.pop(field, None)
+                warnings.append(f'{field}: измерение неоднозначно; проверьте исходную реплику.')
             # Ограничение схемы действует и после расширения цитаты до целой реплики.
             maximum = next(m.max_length for m in type(fields).model_fields[field].metadata if hasattr(m, 'max_length'))
             if len(result[field]) > maximum:
