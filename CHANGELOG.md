@@ -220,3 +220,7 @@
 ## 2026-10-02 02:52:57 +05:00 — Зафиксированы результаты выпуска, сравнение проектов и проверки параллельного приёма
 
 Изменены: `backend/tests/test_live.py`, `docs/local-ai-production.md`, `docs/medventures-comparison.md`, `docs/production-plan.md`, `docs/release-2026-10-02.md`.
+
+## 2026-10-02 03:12:22 +05:00 — Ускорен live-анализ до компактных фактов и вопросов с сохранением цитат и правок врача
+
+Изменены: `.env.example`, `backend/app/clinical.py`, `backend/app/config.py`, `backend/app/grounding.py`, `backend/app/live.py`, `backend/app/providers.py`, `backend/tests/test_grounding.py`, `backend/tests/test_providers.py`, `docs/local-ai-production.md`, `docs/production-plan.md`, `docs/release-2026-10-02.md`, `scripts/evaluate_local_models.py`.

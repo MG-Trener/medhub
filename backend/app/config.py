@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ''
     llm_model: str = 'qwen3:8b'
     llm_response_format: Literal['json_object', 'json_schema'] = 'json_object'
+    llm_compact_extraction: bool = False
     llm_reasoning_effort: Literal['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'] = ''
     llm_max_tokens: int = Field(default=0, ge=0, le=32768)
     llm_temperature: float | None = Field(default=None, ge=0, le=2)

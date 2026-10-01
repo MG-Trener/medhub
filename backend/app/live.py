@@ -309,7 +309,7 @@ def preview(session_id):
         session.payload = {**session.payload, 'analyzed_seconds': duration}
         db.commit()
     try:
-        result = generate(redacted, context, 'all')
+        result = generate(redacted, context, 'live')
         with SessionLocal() as db:
             e = db.scalar(select(Encounter).where(Encounter.id == e.id).with_for_update())
             session = db.get(Job, session_id)

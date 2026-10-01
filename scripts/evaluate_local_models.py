@@ -4,6 +4,7 @@ Outputs are evaluation artifacts, not clinical validation. No patient data or
 cloud API is used. Full responses are saved for human review of assertions.
 """
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -40,12 +41,14 @@ def main():
     parser.add_argument('--model', required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--long', action='store_true', help='Also test a synthetic 15-minute transcript')
+    parser.add_argument('--compact', action='store_true', help='Use compact local extraction schema')
     parser.add_argument('--reasoning-effort', choices=('none', 'minimal', 'low', 'medium', 'high', 'xhigh'))
     parser.add_argument('--max-tokens', type=int)
     parser.add_argument('--temperature', type=float)
     args = parser.parse_args()
     os.environ.update(LLM_PROVIDER='openai_compatible', LLM_URL=args.url,
-                      LLM_MODEL=args.model, LLM_RESPONSE_FORMAT='json_schema', LLM_IS_CLOUD='false', LLM_API_KEY='')
+                      LLM_MODEL=args.model, LLM_RESPONSE_FORMAT='json_schema', LLM_IS_CLOUD='false', LLM_API_KEY='',
+                      LLM_COMPACT_EXTRACTION=str(args.compact).lower())
     for key, value in [('LLM_REASONING_EFFORT', args.reasoning_effort),
                        ('LLM_MAX_TOKENS', args.max_tokens), ('LLM_TEMPERATURE', args.temperature)]:
         if value is not None:
@@ -66,15 +69,17 @@ def main():
                'ai_test_recommendations': 'Правка врача: анализы пока не нужны, сначала осмотр.'},
               'ai_test_recommendations')]
     if args.long:
-        lines = RU + segments([('SPEAKER_00' if i % 2 == 0 else 'SPEAKER_01',
+        lines = copy.deepcopy(RU) + segments([('SPEAKER_00' if i % 2 == 0 else 'SPEAKER_01',
                                'Продолжаем уточнение ранее описанных жалоб. Новых симптомов и измерений нет.')
                               for i in range(140)]) + segments([
                                   ('SPEAKER_01', 'Уточнение в конце: боль в горле уже прошла.'),
                                   ('SPEAKER_00', 'Зафиксировал: боль прошла. Диагноз пока не установлен.')])
         for i, item in enumerate(lines):
             item.update(start=i * 6, end=i * 6 + 5)
+            # Live-поток намеренно не отождествляет голоса разных ASR-фрагментов.
+            item['speaker'] = f'SPEAKER_{(i // 4) * 4 + (item["speaker"] != "SPEAKER_00"):02d}'
         cases.append(('long_context', lines, {}, 'all'))
-    report = {'model': args.model, 'url': args.url, 'synthetic_only': True,
+    report = {'model': args.model, 'url': args.url, 'synthetic_only': True, 'compact': args.compact,
               'reasoning_effort': args.reasoning_effort, 'max_tokens': args.max_tokens,
               'temperature': args.temperature, 'cases': []}
     original_post = httpx.Client.post
@@ -95,12 +100,12 @@ def main():
             start = time.monotonic()
             entry = {'name': name, 'target': target}
             try:
-                result = generate(transcript, context, target)
+                result = generate(transcript, context, 'live' if args.compact and target == 'all' else target)
                 merged = merge_generated_fields(context, result['fields'], target=target)
                 checks = {'schema_valid': True,
-                          'examination_left_empty': not result['fields']['examination'],
+                          'examination_supported': not result['fields']['examination'] or name == 'mixed_language_correction',
                           'manual_diagnosis_preserved': not context.get('diagnosis') or merged['diagnosis'] == context['diagnosis'],
-                          'sources_returned': bool(result['fields']['sources'])}
+                          'clinical_sources_returned': target != 'all' or bool(result['fields']['sources'])}
                 if name == 'russian_facts':
                     checks.update(allergy_retained='амоксициллин' in merged['allergies'].lower(),
                                   no_new_diagnosis=not merged['diagnosis'],

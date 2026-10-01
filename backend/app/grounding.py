@@ -35,6 +35,10 @@ def grounded_fields(fields, segments):
                 full = segments[quote.segment]['text'].strip()
                 context = sentence_context(full, quote.text)
                 if '?' not in context and '[ПЕРСОНАЛЬНЫЕ ДАННЫЕ]' not in context:
+                    if re.search(r'диагноз.{0,30}(не установлен|не определ[её]н)|ничего не назначаю|'
+                                 r'после осмотра.{0,20}(уточним|решим|обсудим|назначим)|'
+                                 r'қараудан кейін.{0,20}(анықтаймыз|нақтылаймыз)', context, re.I):
+                        continue  # Решение/план врача не становится анамнезом, операцией или привычкой.
                     if source.field == 'examination' and re.search(
                         r'осмотр.{0,25}(не выполн|не провед|ещ[её] не)|осмотр.{0,15}(позже|после)|'
                         r'қарау.{0,20}(жүргізілген жоқ|жүргізілмеген)', context, re.I):
@@ -43,6 +47,14 @@ def grounded_fields(fields, segments):
         if valid:
             sources[source.field] = {'field': source.field, 'segments': sorted({q['segment'] for q in valid}),
                                     'quotes': valid, 'revision': transcript_revision(segments)}
+    # Измерения, отнесённые моделью к объективному осмотру, раскладываем по числовым
+    # полям только из уже проверенных дословных цитат. Семейный анамнез не используем.
+    if 'examination' in sources:
+        from .vitals import LABELS, extract_vital
+        examination = sources['examination']
+        for field in LABELS:
+            if field not in sources and extract_vital(field, [q['text'] for q in examination['quotes']]):
+                sources[field] = {**examination, 'field': field}
     for field in DOCUMENT_FIELDS - {'visit_type', 'visit_format'}:
         if not result[field] and field not in sources:
             continue

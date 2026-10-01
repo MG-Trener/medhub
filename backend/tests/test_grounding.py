@@ -52,6 +52,23 @@ def test_exact_sources_fill_empty_fields_and_spoken_vitals():
     assert result['blood_pressure'] == '120/80' and result['pulse'] == '72'
 
 
+def test_vitals_from_examination_and_preview_preserves_advisories():
+    sentence = 'Измерила давление сто двадцать на восемьдесят, пульс семьдесят два.'
+    fields = Consultation(sources=[{'field': 'examination', 'quotes': [{'segment': 0, 'text': sentence}]}])
+    result = grounded_fields(fields, [{'text': sentence}])
+    assert result['blood_pressure'] == '120/80' and result['pulse'] == '72'
+    merged = merge_generated_fields({'ai_test_recommendations': 'Правка врача'}, result)
+    assert merged['ai_test_recommendations'] == 'Правка врача'
+
+
+def test_physician_plans_cannot_be_misfiled_as_patient_history():
+    text = 'Диагноз пока не установлен. Ничего не назначаю до осмотра. После осмотра уточним причину.'
+    fields = Consultation(sources=[{'field': field, 'quotes': [{'segment': 0, 'text': text}]}
+        for field in ('operations', 'habits', 'anamnesis')])
+    result = grounded_fields(fields, [{'text': text}])
+    assert result['operations'] == result['habits'] == result['anamnesis'] == ''
+
+
 def test_lock_requires_explicit_unlock_and_current_version(client, doctor):
     from test_workflow import patient, encounter
     e = encounter(client, patient(client))

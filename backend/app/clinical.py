@@ -88,6 +88,8 @@ def merge_generated_fields(existing, generated, *, new_transcript=False, target=
         if target not in ('all', key):
             continue
         old, addition = result[key], incoming[key].strip()
+        if not addition:
+            continue
         if key == 'ai_diagnosis_variants':
             parts = [part.strip() for part in addition.split('\n\n') if part.strip()]
             additions = [part for part in parts if normalize(part) not in normalize(old)]

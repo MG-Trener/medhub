@@ -1,9 +1,10 @@
 import json
+from typing import Literal
 from functools import lru_cache
 import httpx
 from pydantic import BaseModel, Field
 from .config import settings
-from .schemas import Consultation, Segment
+from .schemas import Consultation, Segment, EvidenceQuote
 from .openai_asr import ProviderError, transcribe_openai
 from .openai_llm import extract_openai, strict_schema
 from .diagnoses import by_code
@@ -103,8 +104,36 @@ class OpenAIExtraction(BaseModel):
     speaker_roles: list[SpeakerRole]
 
 
+class ExtractedFact(BaseModel):
+    field: Literal['complaints', 'anamnesis', 'life_history', 'allergies', 'medications',
+        'chronic_conditions', 'family_history', 'operations', 'habits', 'examination',
+        'temperature', 'height', 'weight', 'pulse', 'respiratory_rate', 'blood_pressure', 'spo2', 'investigations']
+    quotes: list[EvidenceQuote] = Field(min_length=1, max_length=10)
+
+
+class CompactExtraction(BaseModel):
+    facts: list[ExtractedFact] = Field(max_length=50)
+    speaker_roles: list[SpeakerRole] = Field(max_length=10)
+    ai_questions: list[str] = Field(max_length=3)
+    warnings: list[str] = Field(max_length=5)
+
+    def expanded(self):
+        # Значения и таймкоды формирует сервер из цитат; повторный пересказ модели не нужен.
+        sources = {}
+        for fact in self.facts:
+            sources.setdefault(fact.field, []).extend(fact.quotes)
+        fields = GeneratedConsultation(ai_questions=self.ai_questions,
+            ai_test_recommendations='Промежуточный анализ.', ai_diagnosis_variants='Промежуточный анализ.',
+            warnings=self.warnings, sources=[{'field': key, 'segments': sorted({q.segment for q in quotes}),
+                'quotes': [q.model_dump() for q in quotes[:100]]} for key, quotes in sources.items()])
+        return Extraction(fields=fields, speaker_roles={r.speaker: r.role for r in self.speaker_roles})
+
+
 def generate(segments, context=None, target='all'):
     s = settings()
+    compact = s.llm_compact_extraction and target == 'live' and s.llm_provider in ('ollama', 'openai_compatible')
+    if target == 'live':
+        target = 'all'
     from .ai_policy import llm_is_external
     if s.llm_provider in ('ollama', 'openai_compatible') and llm_is_external() and not s.llm_url.lower().startswith('https://'):
         raise ProviderError('Внешняя LLM требует HTTPS')
@@ -162,6 +191,20 @@ def generate(segments, context=None, target='all'):
                'не повторяй уже записанные факты и варианты. ai_test_recommendations верни целиком с учётом правок. '
                'При пересмотре старой гипотезы явно укажи причину и необходимость проверки, не объявляй её диагнозом. '
                'Сохранённые diagnosis и diagnosis_code не меняй. Источники указывай только для фактов из диалога.')
+    if compact:
+        recent_speakers = list(dict.fromkeys(s['speaker'] for s in reversed(segments)))[:10]
+        prompt += (' Используется КОМПАКТНАЯ схема: вместо fields и sources верни facts — список '
+                   '{field, quotes:[{segment,text}]}. Каждый факт означает распределение ТОЧНОЙ цитаты '
+                   'по клиническому полю. Не повторяй цитату пересказом; пустые поля вообще не перечисляй. '
+                   'speaker_roles — массив {speaker,role}. Верни только facts, speaker_roles, ai_questions, warnings. '
+                   'Справочные гипотезы и обследования в этом быстром проходе не генерируй. '
+                   'Измерения помещай в blood_pressure/pulse и другие соответствующие поля. '
+                   'Текущие жалобы помещай в complaints; длительность и развитие — в anamnesis. '
+                   'Не запрашивай повторно сведения, уже сообщённые на казахском. '
+                   'Диагноз, назначения и советы врача не помещай в анамнез. Для target справочного поля '
+                   'facts можно оставить пустым. Учитывай измерения и отрицания RU/KK.')
+        prompt += ' Роли верни только для последних голосов: ' + ', '.join(recent_speakers) + '. Прежние роли уже сохранены сервером.'
+    local_schema = strict_schema((CompactExtraction if compact else Extraction).model_json_schema())
     messages = [{'role': 'system', 'content': prompt}, {'role': 'user', 'content': json.dumps({
         'transcript': [{'index': i, **x} for i, x in enumerate(segments)],
         'current_fields': context or {}, 'target': target}, ensure_ascii=False)}]
@@ -171,13 +214,13 @@ def generate(segments, context=None, target='all'):
     else:
         with httpx.Client(timeout=300, follow_redirects=False) as client:
             if s.llm_provider == 'ollama':
-                r = client.post(s.llm_url.rstrip('/') + '/api/chat', json={'model': s.llm_model, 'messages': messages, 'stream': False, 'format': strict_schema(Extraction.model_json_schema()), 'options': {'temperature': 0}})
+                r = client.post(s.llm_url.rstrip('/') + '/api/chat', json={'model': s.llm_model, 'messages': messages, 'stream': False, 'format': local_schema, 'options': {'temperature': 0}})
                 r.raise_for_status()
                 content = r.json()['message']['content']
             elif s.llm_provider == 'openai_compatible':
                 response_format = {'type': s.llm_response_format}
                 if s.llm_response_format == 'json_schema':
-                    response_format['json_schema'] = {'name': 'consultation', 'strict': True, 'schema': strict_schema(Extraction.model_json_schema())}
+                    response_format['json_schema'] = {'name': 'consultation', 'strict': True, 'schema': local_schema}
                 headers = {'Authorization': 'Bearer ' + s.llm_api_key} if s.llm_api_key else {}
                 payload = {'model': s.llm_model, 'messages': messages, 'response_format': response_format}
                 if s.llm_reasoning_effort:
@@ -191,7 +234,7 @@ def generate(segments, context=None, target='all'):
                 content = r.json()['choices'][0]['message']['content']
             else:
                 raise ProviderError('LLM не настроена. Выберите LLM_PROVIDER в .env.')
-    parsed = Extraction.model_validate_json(content)
+    parsed = CompactExtraction.model_validate_json(content).expanded() if compact else Extraction.model_validate_json(content)
     speakers = {x['speaker'] for x in segments}
     parsed.speaker_roles = {k: v for k, v in parsed.speaker_roles.items() if k in speakers and v in ('doctor', 'patient', 'nurse', 'unknown')}
     parsed.fields.sources = [source for source in parsed.fields.sources if source.field in Consultation.model_fields
@@ -206,7 +249,10 @@ def generate(segments, context=None, target='all'):
     if parsed.fields.diagnosis_code not in by_code():
         parsed.fields.diagnosis_code = ''
     from .grounding import grounded_fields
-    return {'fields': grounded_fields(parsed.fields, segments), 'speaker_roles': parsed.speaker_roles}
+    fields = grounded_fields(parsed.fields, segments)
+    if compact:
+        fields['ai_test_recommendations'] = fields['ai_diagnosis_variants'] = ''
+    return {'fields': fields, 'speaker_roles': parsed.speaker_roles}
 
 
 def cloud_transcribe(masked_audio, original_segments):
