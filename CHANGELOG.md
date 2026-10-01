@@ -164,3 +164,11 @@
 ## 2026-09-30 17:06:30 +05:00 — Перенесена проверка ЭЦП на локальный модуль НУЦ с OCSP
 
 Изменены: `.env.example`, `.gitignore`, `README.md`, `backend/Dockerfile`, `backend/app/config.py`, `backend/app/consent_sigex.py`, `backend/app/eds_local.py`, `backend/app/identity_xml.py`, `backend/tests/test_eds_local.py`, `backend/tests/test_identity_xml.py`, `backend/tests/test_patient_consents.py`, `backend/verifier/README.md`, `backend/verifier/Verifier.java`, `backend/verifier/VerifierChecks.java`, `backend/verifier/dependencies.sha256`, `backend/verifier/trust/nca_gost_2022.cer`, `backend/verifier/trust/nca_rsa_2022.cer`, `backend/verifier/trust/root_gost_2022.cer`, `backend/verifier/trust/root_rsa_2020.cer`, `deploy/update-service-release.sh`.
+
+## 2026-09-30 16:47:59 +05:00 — Компактный кабинет врача с вкладками и защитой активного приёма
+
+Изменены: `backend/app/clinical.py`, `backend/app/main.py`, `backend/tests/test_clinical_merge.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_live.py`, `backend/tests/test_regeneration.py`, `backend/tests/test_visit_lifecycle.py`, `docs/compact-workspace-prompt.md`, `docs/compact-workspace-validation.md`, `frontend/src/App.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/ConsentSigning.vue`, `frontend/src/Consultation.vue`, `frontend/src/DiagnosisPicker.vue`, `frontend/src/PagedText.vue`, `frontend/src/Pager.vue`, `frontend/src/main.js`, `frontend/src/text-pages.js`, `frontend/src/workspace.css`, `frontend/tests/preview-server.mjs`, `frontend/tests/text-pages.test.js`.
+
+## 2026-10-01 09:31:36 +05:00 — Объединён компактный кабинет врача с сохранением логики dev и исправлением переходов
+
+Изменены: `backend/app/main.py`, `backend/tests/test_visit_lifecycle.py`, `docs/compact-workspace-prompt.md`, `docs/compact-workspace-validation.md`, `frontend/src/App.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/ConsentSigning.vue`, `frontend/src/Consultation.vue`, `frontend/src/DiagnosisPicker.vue`, `frontend/src/PagedText.vue`, `frontend/src/Pager.vue`, `frontend/src/main.js`, `frontend/src/text-pages.js`, `frontend/src/workspace.css`, `frontend/tests/preview-server.mjs`, `frontend/tests/text-pages.test.js`.
