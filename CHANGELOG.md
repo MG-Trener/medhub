@@ -188,3 +188,7 @@
 ## 2026-10-01 10:32:57 +05:00 — Добавлена локальная расшифровка аудиоархива с проверкой целостности и отчётом
 
 Изменены: `docs/decrypt-audio.md`, `scripts/decrypt_audio.py`, `scripts/test_decrypt_audio.py`.
+
+## 2026-10-02 19:14:46 +05:00 — Добавлен запуск локального ASR двойным щелчком через BAT
+
+Изменены: `deploy/gpu/windows/WINDOWS.md`, `start-asr.bat`.
