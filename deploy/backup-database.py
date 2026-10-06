@@ -5,6 +5,11 @@ from pathlib import Path
 import subprocess
 import sys
 
+# Тестовый сервер может явно отключить резервное копирование перед деплоем.
+if os.environ.get('MEDHUB_DATABASE_BACKUP_ENABLED', 'true').strip().lower() in ('false', '0', 'no', 'off'):
+    print('Database backup skipped: MEDHUB_DATABASE_BACKUP_ENABLED=false')
+    raise SystemExit(0)
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 from app.db import engine
 

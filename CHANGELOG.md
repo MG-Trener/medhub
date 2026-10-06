@@ -192,3 +192,7 @@
 ## 2026-10-02 19:14:46 +05:00 — Добавлен запуск локального ASR двойным щелчком через BAT
 
 Изменены: `deploy/gpu/windows/WINDOWS.md`, `start-asr.bat`.
+
+## 2026-10-06 12:15:31 +05:00 — Устранено повторное чтение аудиоархива каждые две секунды и сохранено отключение бэкапов
+
+Изменены: `backend/app/audio_cleanup.py`, `backend/app/worker.py`, `backend/tests/test_audio_cleanup.py`, `deploy/backup-database.py`.
