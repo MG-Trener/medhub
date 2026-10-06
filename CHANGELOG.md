@@ -141,3 +141,7 @@
 ## 2026-09-30 16:47:59 +05:00 — Компактный кабинет врача с вкладками и защитой активного приёма
 
 Изменены: `backend/app/clinical.py`, `backend/app/main.py`, `backend/tests/test_clinical_merge.py`, `backend/tests/test_consultation_pipeline.py`, `backend/tests/test_live.py`, `backend/tests/test_regeneration.py`, `backend/tests/test_visit_lifecycle.py`, `docs/compact-workspace-prompt.md`, `docs/compact-workspace-validation.md`, `frontend/src/App.vue`, `frontend/src/ClinicalField.vue`, `frontend/src/ConsentSigning.vue`, `frontend/src/Consultation.vue`, `frontend/src/DiagnosisPicker.vue`, `frontend/src/PagedText.vue`, `frontend/src/Pager.vue`, `frontend/src/main.js`, `frontend/src/text-pages.js`, `frontend/src/workspace.css`, `frontend/tests/preview-server.mjs`, `frontend/tests/text-pages.test.js`.
+
+## 2026-10-06 12:16:11 +05:00 — Устранено повторное чтение аудиоархива каждые две секунды и сохранено отключение бэкапов
+
+Изменены: `backend/app/audio_cleanup.py`, `backend/app/worker.py`, `backend/tests/test_audio_cleanup.py`, `deploy/backup-database.py`.

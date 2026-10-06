@@ -7,6 +7,7 @@ import httpx
 from cryptography.fernet import Fernet
 from sqlalchemy import select, case
 from .config import settings
+from .audio_cleanup import cleanup, cleanup_if_due
 from .db import SessionLocal, Job, Encounter, Patient, audit, now
 from .privacy import redact_segments, redact_clinical_context
 from .providers import transcribe, generate, cloud_transcribe, ProviderError
@@ -200,17 +201,6 @@ def recover():
         db.commit()
 
 
-def cleanup():
-    # Записи приёмов и их маскированные копии сохраняются. Очищаем только сиротские файлы.
-    cutoff = now() - 24 * 3600
-    with SessionLocal() as db:
-        referenced = {Path(j.payload[key]).name for j in db.scalars(select(Job).where(Job.kind.in_(['transcribe', 'mute_audio', 'cloud_asr', 'live_chunk'])))
-                      for key in ('audio', 'masked_audio') if j.payload.get(key)}
-    for path in Path(settings().audio_dir).glob('*.enc'):
-        if path.name not in referenced and path.stat().st_mtime < cutoff:
-            path.unlink(missing_ok=True)
-
-
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     recover()
@@ -218,7 +208,7 @@ if __name__ == '__main__':
         try:
             from .live import recover_and_expire
             recover_and_expire()
-            cleanup()
+            cleanup_if_due()
             if not process_one():
                 time.sleep(2)
         except Exception as error:
