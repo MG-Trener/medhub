@@ -164,3 +164,7 @@
 ## 2026-09-30 17:06:30 +05:00 — Перенесена проверка ЭЦП на локальный модуль НУЦ с OCSP
 
 Изменены: `.env.example`, `.gitignore`, `README.md`, `backend/Dockerfile`, `backend/app/config.py`, `backend/app/consent_sigex.py`, `backend/app/eds_local.py`, `backend/app/identity_xml.py`, `backend/tests/test_eds_local.py`, `backend/tests/test_identity_xml.py`, `backend/tests/test_patient_consents.py`, `backend/verifier/README.md`, `backend/verifier/Verifier.java`, `backend/verifier/VerifierChecks.java`, `backend/verifier/dependencies.sha256`, `backend/verifier/trust/nca_gost_2022.cer`, `backend/verifier/trust/nca_rsa_2022.cer`, `backend/verifier/trust/root_gost_2022.cer`, `backend/verifier/trust/root_rsa_2020.cer`, `deploy/update-service-release.sh`.
+
+## 2026-10-06 12:15:49 +05:00 — Устранено повторное чтение аудиоархива каждые две секунды и сохранено отключение бэкапов
+
+Изменены: `backend/app/audio_cleanup.py`, `backend/app/worker.py`, `backend/tests/test_audio_cleanup.py`, `deploy/backup-database.py`.
