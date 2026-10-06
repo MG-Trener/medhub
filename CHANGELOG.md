@@ -224,3 +224,7 @@
 ## 2026-10-02 03:12:22 +05:00 — Ускорен live-анализ до компактных фактов и вопросов с сохранением цитат и правок врача
 
 Изменены: `.env.example`, `backend/app/clinical.py`, `backend/app/config.py`, `backend/app/grounding.py`, `backend/app/live.py`, `backend/app/providers.py`, `backend/tests/test_grounding.py`, `backend/tests/test_providers.py`, `docs/local-ai-production.md`, `docs/production-plan.md`, `docs/release-2026-10-02.md`, `scripts/evaluate_local_models.py`.
+
+## 2026-10-06 12:14:20 +05:00 — Устранено повторное чтение аудиоархива каждые две секунды и сохранено отключение бэкапов
+
+Изменены: `backend/app/audio_cleanup.py`, `backend/app/worker.py`, `backend/tests/test_audio_cleanup.py`, `deploy/backup-database.py`.
